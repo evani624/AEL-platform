@@ -1,0 +1,31 @@
+@import "tailwindcss";
+@config "../tailwind.config.js";
+
+/* Typography + Global Background: Deep Indigo Mesh Gradient (Figma exact) */
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #141721 0%, #2A3142 100%);
+  background-attachment: fixed;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  /* Grid pattern: 1px lines, rgba(0, 245, 255, 0.03), 50px spacing, grid opacity 0.4 */
+  background-image:
+    linear-gradient(rgba(0, 245, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 245, 255, 0.03) 1px, transparent 1px);
+  background-size: 50px 50px;
+  background-position: 0 0;
+  opacity: 0.4;
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+}
