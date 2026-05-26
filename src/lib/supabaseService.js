@@ -12,10 +12,10 @@ const ROUND_NAMES = {
  * Build app tournament structure from DB rows
  */
 function buildTournamentFromDb(tournamentRow, matchesRows) {
-  const { id, name, game_name, size } = tournamentRow
+  const { id, name, game_name, size, category } = tournamentRow
   const teamSize = size
-  const rounds = ROUND_NAMES[teamSize].map((name, roundIndex) => ({
-    name,
+  const rounds = ROUND_NAMES[teamSize].map((roundName) => ({
+    name: roundName,
     matches: [],
   }))
 
@@ -43,6 +43,16 @@ function buildTournamentFromDb(tournamentRow, matchesRows) {
       if (row.winner_id === 'team1' && team1) winnerId = team1.id
       else if (row.winner_id === 'team2' && team2) winnerId = team2.id
 
+      // Persisted match state. Falls back gracefully if the `status` column
+      // hasn't been migrated yet: a decided match (has winner) is always Final;
+      // otherwise default to 'upcoming' (we never auto-flip to in_progress).
+      const rawStatus = row.status
+      const status = winnerId
+        ? 'final'
+        : rawStatus === 'in_progress' || rawStatus === 'final' || rawStatus === 'upcoming'
+          ? rawStatus
+          : 'upcoming'
+
       const nextMatchIdx = nextRound ? Math.floor(matchIdx / 2) : null
       const nextMatchId = nextRound?.matches[nextMatchIdx]?.id ?? null
 
@@ -50,7 +60,10 @@ function buildTournamentFromDb(tournamentRow, matchesRows) {
         id: row.id,
         team1,
         team2,
+        team1Score: row.team_1_score ?? null,
+        team2Score: row.team_2_score ?? null,
         winnerId,
+        status,
         nextMatchId: nextMatchId || null,
         _roundNumber: r,
         _matchIndex: matchIdx,
@@ -69,6 +82,7 @@ function buildTournamentFromDb(tournamentRow, matchesRows) {
     id,
     name,
     game: game_name || '',
+    category: category || 'mixed',
     teamSize,
     rounds,
   }
@@ -117,10 +131,10 @@ export async function fetchTournaments() {
 /**
  * Create tournament + initial empty matches
  */
-export async function createTournament({ name, game, teamSize }) {
+export async function createTournament({ name, game, category, teamSize }) {
   const { data: tournament, error: tError } = await supabase
     .from('tournaments')
-    .insert({ name, game_name: game || '', size: teamSize })
+    .insert({ name, game_name: game || '', category: category || 'mixed', size: teamSize })
     .select()
     .single()
 
@@ -155,12 +169,18 @@ export async function fetchMatchesForTournament(tournamentId) {
 }
 
 /**
- * Update tournament name
+ * Update tournament details (name, game, category). Bracket size is fixed at
+ * creation, so it is intentionally not editable here.
  */
-export async function updateTournament(id, { name }) {
+export async function updateTournament(id, { name, game, category }) {
+  const updates = {}
+  if (name !== undefined) updates.name = name.trim()
+  if (game !== undefined) updates.game_name = game.trim()
+  if (category !== undefined) updates.category = category
+
   const { data, error } = await supabase
     .from('tournaments')
-    .update({ name: name.trim() })
+    .update(updates)
     .eq('id', id)
     .select()
     .single()
@@ -177,8 +197,16 @@ export async function deleteTournament(id) {
   if (error) throw error
 }
 
+// True when an error is the `status` column not existing yet (pre-migration).
+function isMissingStatusColumn(error) {
+  if (!error) return false
+  if (error.code === 'PGRST204' || error.code === '42703') return true
+  const msg = (error.message || '').toLowerCase()
+  return msg.includes('status') && (msg.includes('column') || msg.includes('schema cache'))
+}
+
 /**
- * Upsert match - update team or score
+ * Upsert match - update team, score, winner, and/or status
  */
 export async function upsertMatch(tournamentId, matchId, updates) {
   const { data: match, error } = await supabase
@@ -210,11 +238,20 @@ export async function upsertMatch(tournamentId, matchId, updates) {
           ? 'team1'
           : 'team2'
   }
+  if (updates.status !== undefined) dbUpdates.status = updates.status
 
-  const { error: updateError } = await supabase
+  let { error: updateError } = await supabase
     .from('matches')
     .update(dbUpdates)
     .eq('id', matchId)
+
+  // Graceful fallback: if the `status` column hasn't been migrated yet, persist
+  // everything else so the app keeps working before supabase-schema.sql is run.
+  if (updateError && dbUpdates.status !== undefined && isMissingStatusColumn(updateError)) {
+    const rest = { ...dbUpdates }
+    delete rest.status
+    ;({ error: updateError } = await supabase.from('matches').update(rest).eq('id', matchId))
+  }
 
   if (updateError) throw updateError
   return match

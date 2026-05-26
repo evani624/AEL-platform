@@ -1,101 +1,116 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
+import { Check, AlertCircle } from 'lucide-react'
 import Modal from './Modal'
-import { TEAM_COLOR_PRESETS } from '../constants/colors'
+import { TEAM_COLORS } from '../constants/teamColors'
 
-const MODAL_WIDTH = 448
-
-export default function AddTeamModal({ isOpen, onClose, onConfirm }) {
+export default function AddTeamModal({ isOpen, onClose, onConfirm, slotLabel }) {
   const [name, setName] = useState('')
-  const [color, setColor] = useState(TEAM_COLOR_PRESETS[0])
+  const [color, setColor] = useState(TEAM_COLORS[0].hex)
+  const [err, setErr] = useState('')
+  const inputRef = useRef(null)
 
-  const handleSubmit = (e) => {
-    e.preventDefault()
-    const trimmed = name.trim()
-    if (!trimmed) return
-    onConfirm?.({ name: trimmed, color })
-    setName('')
-    setColor(TEAM_COLOR_PRESETS[0])
-    onClose?.()
-  }
+  useEffect(() => {
+    const id = setTimeout(() => inputRef.current?.focus(), 60)
+    return () => clearTimeout(id)
+  }, [])
 
-  const handleCancel = () => {
-    setName('')
-    setColor(TEAM_COLOR_PRESETS[0])
+  const submit = () => {
+    if (name.trim().length < 2) {
+      setErr('Team name needs at least 2 characters')
+      return
+    }
+    onConfirm?.({ name: name.trim(), color })
     onClose?.()
   }
 
   return (
-    <Modal isOpen={isOpen} onClose={handleCancel} title="Add Participant" width={MODAL_WIDTH}>
-      <form onSubmit={handleSubmit} className="flex flex-col gap-5">
-        <div>
-          <label htmlFor="team-name" className="mb-2 block text-sm font-medium text-ice-white/90">
-            Team Name
-          </label>
-          <input
-            id="team-name"
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Enter team name"
-            className="w-full rounded-lg border px-4 py-3 text-ice-white placeholder:text-ice-white/40 focus:border-electric-cyan focus:outline-none focus:ring-1 focus:ring-electric-cyan"
-            style={{
-              background: 'rgba(20, 23, 33, 0.6)',
-              borderColor: 'rgba(0, 245, 255, 0.3)',
-            }}
-            autoFocus
-          />
-        </div>
-
-        <div>
-          <label className="mb-2 block text-sm font-medium text-ice-white/90">
-            Color
-          </label>
-          <div className="flex flex-wrap gap-2">
-            {TEAM_COLOR_PRESETS.map((c) => (
-              <button
-                key={c}
-                type="button"
-                onClick={() => setColor(c)}
-                className="h-9 w-9 rounded-full transition-transform hover:scale-110"
-                style={{
-                  backgroundColor: c,
-                  border: color === c ? '3px solid rgba(0, 245, 255, 0.9)' : '2px solid rgba(0, 245, 255, 0.3)',
-                  boxShadow: color === c ? '0 0 12px rgba(0, 245, 255, 0.5)' : 'none',
-                }}
-                aria-label={`Select color ${c}`}
-              />
-            ))}
-          </div>
-        </div>
-
-        <div className="mt-2 flex gap-3">
-          <button
-            type="button"
-            onClick={handleCancel}
-            className="flex-1 rounded-lg px-4 py-3 font-medium transition-colors"
-            style={{
-              background: 'transparent',
-              color: 'rgba(240, 245, 249, 0.9)',
-              border: '1px solid rgba(0, 245, 255, 0.3)',
-            }}
-          >
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      accent={slotLabel || 'Bracket slot'}
+      title="Add a team"
+      footer={
+        <>
+          <button className="btn btn--ghost btn--sm" onClick={onClose}>
             Cancel
           </button>
-          <button
-            type="submit"
-            disabled={!name.trim()}
-            className="min-h-[56px] flex-1 rounded-lg px-5 py-4 text-base font-semibold transition-all disabled:opacity-50 hover:shadow-[0_0_30px_rgba(0,245,255,0.5)]"
-            style={{
-              background: 'rgba(0, 245, 255, 0.2)',
-              color: '#00F5FF',
-              border: '1px solid rgba(0, 245, 255, 0.5)',
-              boxShadow: '0 0 20px rgba(0, 245, 255, 0.3)',
-            }}
-          >
-            Add Team
+          <button className="btn btn--primary btn--sm" onClick={submit}>
+            <Check size={13} />
+            Add team
           </button>
+        </>
+      }
+    >
+      <div className={`field ${err ? 'field--err' : ''}`}>
+        <label className="field__label">Team Name</label>
+        <input
+          ref={inputRef}
+          className="field__input"
+          placeholder="e.g. Phoenix Rising"
+          value={name}
+          onChange={(e) => {
+            setName(e.target.value)
+            setErr('')
+          }}
+          onKeyDown={(e) => e.key === 'Enter' && submit()}
+        />
+        {err ? (
+          <div className="field__err">
+            <AlertCircle size={12} />
+            {err}
+          </div>
+        ) : (
+          <div className="field__hint">Shown across the bracket and public link.</div>
+        )}
+      </div>
+
+      <div className="field">
+        <label className="field__label">Team Color</label>
+        <div className="swatches">
+          {TEAM_COLORS.map((c) => (
+            <button
+              key={c.id}
+              type="button"
+              className={`swatch ${c.hex === color ? 'is-active' : ''}`}
+              style={{ '--c': c.hex }}
+              onClick={() => setColor(c.hex)}
+              aria-label={c.id}
+            />
+          ))}
         </div>
-      </form>
+        <div className="field__hint">A subtle bar next to the name on every match card.</div>
+      </div>
+
+      <div
+        style={{
+          marginTop: 4,
+          padding: '12px 14px',
+          background: 'rgba(255,255,255,0.02)',
+          border: '1px solid var(--line)',
+          borderRadius: 'var(--r-md)',
+          display: 'flex',
+          alignItems: 'center',
+          gap: 10,
+        }}
+      >
+        <span
+          style={{
+            fontFamily: 'var(--f-mono)',
+            fontSize: 10,
+            letterSpacing: '.14em',
+            color: 'var(--text-mute)',
+            textTransform: 'uppercase',
+          }}
+        >
+          Preview
+        </span>
+        <span className="team-chip" style={{ '--c': color }} />
+        <span style={{ fontSize: 13, fontWeight: 500 }}>
+          {name.trim() || (
+            <span style={{ color: 'var(--text-mute)', fontStyle: 'italic', fontWeight: 400 }}>Team name…</span>
+          )}
+        </span>
+      </div>
     </Modal>
   )
 }

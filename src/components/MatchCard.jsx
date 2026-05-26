@@ -1,167 +1,135 @@
-import { motion } from 'framer-motion'
-import { X } from 'lucide-react'
-import { TEAM_COLOR_PRESETS } from '../constants/colors'
+import { Plus, X, Crown } from 'lucide-react'
+import { colorHex } from '../constants/teamColors'
+import { getMatchState, getWinnerSide } from '../utils/bracketUtils'
 
-/* Figma Match Card specs exact - use fallbacks to prevent NaN */
-const CARD_WIDTH = 192
-const CARD_BASE = {
-  width: `${CARD_WIDTH || 192}px`,
-  minHeight: '72px',
-  borderRadius: '8px',
-  overflow: 'hidden',
-  background: 'linear-gradient(135deg, rgba(31, 38, 51, 0.7), rgba(42, 49, 66, 0.5))',
-  border: '1px solid rgba(0, 245, 255, 0.2)',
-  boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 rgba(0, 0, 0, 0.2)',
-  backdropFilter: 'blur(10px)',
-  WebkitBackdropFilter: 'blur(10px)',
-}
-
-const CARD_HOVER = {
-  boxShadow: '0 0 20px rgba(0, 245, 255, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 rgba(0, 0, 0, 0.2)',
-  border: '1px solid rgba(0, 245, 255, 0.4)',
-}
-
-const SLOT_WINNER = {
-  boxShadow: '0 0 25px rgba(0, 245, 255, 0.6), inset 0 0 20px rgba(0, 245, 255, 0.1)',
-  borderColor: 'rgba(0, 245, 255, 0.5)',
-}
-
-/** Silver glow for Final match winner - prominent against dark background */
-const CHAMPION_GLOW = {
-  boxShadow: '0 0 30px rgba(200,200,200,0.6), inset 0 0 12px rgba(255,255,255,0.08)',
-  border: '3px solid rgb(163, 163, 163)',
-  zIndex: 100,
-}
-
-const getTeamColor = (team) => {
-  if (!team?.color) return TEAM_COLOR_PRESETS[0]
-  if (typeof team.color === 'string') return team.color
-  const idx = (team.color ?? 0) % (TEAM_COLOR_PRESETS?.length ?? 1)
-  return TEAM_COLOR_PRESETS[Number.isNaN(idx) ? 0 : idx] ?? TEAM_COLOR_PRESETS[0]
-}
-
-export default function MatchCard({ match, onSlotClick, onDeleteTeam, isClickable, isFinal, readOnly }) {
-  const { team1, team2, winnerId } = match
-  const hasBothTeams = team1 && team2
-  const isFinalMatch = Boolean(isFinal)
-  const isWinner1 = team1?.id === winnerId
-  const isWinner2 = team2?.id === winnerId
-  const showChampionGlow1 = isFinalMatch && isWinner1
-  const showChampionGlow2 = isFinalMatch && isWinner2
-
-  if (isFinalMatch && winnerId) {
-    console.log('Final Match Winner:', winnerId, { isWinner1, isWinner2 })
-  }
-
-  const handleSlotClick = (slot, e) => {
-    if (!isClickable) return
-    if (e?.target?.closest('[data-delete-team]')) return
-    const team = slot === 'team1' ? team1 : team2
-    if (team && hasBothTeams) {
-      onSlotClick?.(match, null)
-    } else if (!team) {
-      onSlotClick?.(match, slot)
-    }
-  }
-
-  const handleDeleteTeam = (slot, e) => {
-    e.stopPropagation()
-    const team = slot === 'team1' ? team1 : team2
-    if (team) onDeleteTeam?.(match, slot)
-  }
-
-  const hasChampion = showChampionGlow1 || showChampionGlow2
+function TeamRow({ team, score, seed, isWinner, isLoser, isTop, empty, readonly, onClick, onDelete }) {
+  let cls = 'match__row'
+  if (isWinner) cls += ' match__row--winner'
+  if (isLoser) cls += ' match__row--loser'
+  if (isTop) cls += ' match__row--top'
+  if (empty) cls += ' match__row--empty'
 
   return (
-    <motion.div
-      data-match-card
-      layout
-      initial={{ opacity: 0, scale: 0.95 }}
-      animate={{ opacity: 1, scale: 1 }}
-      className={`group ${isClickable ? 'cursor-pointer' : ''}`}
-      style={{
-        ...CARD_BASE,
-        ...(hasChampion && { overflow: 'visible' }),
-        ...(!hasBothTeams && { boxShadow: '0 0 40px rgba(0, 245, 255, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1), inset 0 -1px 0 rgba(0, 0, 0, 0.2)' }),
-      }}
-      whileHover={isClickable ? CARD_HOVER : {}}
-    >
-      {/* Team 1 slot - outermost div of winning team's slot gets silver champion glow */}
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={(e) => handleSlotClick('team1', e)}
-        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && handleSlotClick('team1')}
-        className="group/slot relative flex cursor-pointer flex-col border-b px-3 py-2.5 transition-colors hover:bg-electric-cyan/5"
-        style={{
-          borderColor: showChampionGlow1 ? undefined : 'rgba(0, 245, 255, 0.15)',
-          minHeight: 36,
-          ...(showChampionGlow1 ? CHAMPION_GLOW : (isWinner1 || team1?.isWinningPath) ? SLOT_WINNER : {}),
-        }}
-      >
-        {team1 ? (
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <div
-              className="h-2.5 w-2.5 shrink-0 rounded-full"
-              style={{ backgroundColor: getTeamColor(team1) }}
-            />
-            <span className="min-w-0 flex-1 truncate text-base font-medium" style={{ color: '#F0F5FF' }}>
-              {team1.name}
-            </span>
-            {!readOnly && (
-              <button
-                type="button"
-                data-delete-team
-                onClick={(e) => handleDeleteTeam('team1', e)}
-                className="shrink-0 rounded p-0.5 text-ice-white/40 opacity-50 transition-opacity transition-colors hover:bg-red-500/30 hover:text-red-400 max-md:opacity-70 md:opacity-0 md:group-hover/slot:opacity-100"
-                aria-label={`Remove ${team1.name}`}
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
-        ) : (
-          <span className="text-sm text-ice-white/40">TBD</span>
-        )}
-      </div>
+    <div className={cls} onClick={onClick}>
+      <span className="match__seed">{String(seed).padStart(2, '0')}</span>
+      {team ? (
+        <span className="match__team">
+          <span className="team-chip" style={{ '--c': colorHex(team.color) }} />
+          <span className="match__name" style={{ flex: 1, minWidth: 0 }}>{team.name}</span>
+          {!readonly && onDelete && (
+            <button
+              type="button"
+              className="icon-btn icon-btn--danger"
+              data-delete-team
+              onClick={(e) => { e.stopPropagation(); onDelete() }}
+              style={{ width: 20, height: 20, flexShrink: 0 }}
+              aria-label={`Remove ${team.name}`}
+              title="Remove team"
+            >
+              <X size={12} />
+            </button>
+          )}
+        </span>
+      ) : (
+        <span className="match__team">
+          <span className="team-chip" />
+          <span className="match__name">
+            <Plus size={11} /> Add team
+          </span>
+        </span>
+      )}
+      <span className="match__score">{score == null ? '—' : score}</span>
+    </div>
+  )
+}
 
-      {/* Team 2 slot - outermost div of winning team's slot gets silver champion glow */}
-      <div
-        role="button"
-        tabIndex={0}
-        onClick={(e) => handleSlotClick('team2', e)}
-        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && handleSlotClick('team2')}
-        className="group/slot relative flex cursor-pointer flex-col px-3 py-2.5 transition-colors hover:bg-electric-cyan/5"
-        style={{
-          minHeight: 36,
-          ...(showChampionGlow2 ? CHAMPION_GLOW : (isWinner2 || team2?.isWinningPath) ? SLOT_WINNER : {}),
-        }}
-      >
-        {team2 ? (
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            <div
-              className="h-2.5 w-2.5 shrink-0 rounded-full"
-              style={{ backgroundColor: getTeamColor(team2) }}
-            />
-            <span className="min-w-0 flex-1 truncate text-base font-medium" style={{ color: '#F0F5FF' }}>
-              {team2.name}
-            </span>
-            {!readOnly && (
-              <button
-                type="button"
-                data-delete-team
-                onClick={(e) => handleDeleteTeam('team2', e)}
-                className="shrink-0 rounded p-0.5 text-ice-white/40 opacity-50 transition-opacity transition-colors hover:bg-red-500/30 hover:text-red-400 max-md:opacity-70 md:opacity-0 md:group-hover/slot:opacity-100"
-                aria-label={`Remove ${team2.name}`}
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            )}
-          </div>
+/**
+ * Single match card. State is derived (done / live / upcoming); winner glows
+ * violet, loser dims. For the final card the winner floats to the top slot.
+ */
+export default function MatchCard({ match, readonly, isFinal, isChampionPath, onSlotClick, onDeleteTeam }) {
+  const state = getMatchState(match)
+  const winnerSide = getWinnerSide(match)
+  const stateLabel = state === 'live' ? 'Live' : state === 'done' ? 'Done' : 'Upcoming'
+  const matchIndex = match._matchIndex ?? 0
+  const round = (match._roundNumber ?? 0) + 1
+
+  const clickRow = (which) => {
+    if (readonly) return
+    const team = which === 'A' ? match.team1 : match.team2
+    if (!team) onSlotClick?.(match, which === 'A' ? 'team1' : 'team2')
+    else onSlotClick?.(match, null)
+  }
+  const clickHead = () => {
+    if (readonly) return
+    if (match.team1 && match.team2) onSlotClick?.(match, null)
+  }
+
+  const swap = isFinal && state === 'done' && winnerSide === 'B'
+
+  const rowA = (
+    <TeamRow
+      key="a"
+      team={match.team1}
+      score={match.team1Score}
+      seed={matchIndex * 2 + 1}
+      isWinner={state === 'done' && winnerSide === 'A'}
+      isLoser={state === 'done' && winnerSide === 'B'}
+      isTop={!swap}
+      empty={!match.team1}
+      readonly={readonly}
+      onClick={() => clickRow('A')}
+      onDelete={onDeleteTeam && match.team1 ? () => onDeleteTeam(match, 'team1') : undefined}
+    />
+  )
+  const rowB = (
+    <TeamRow
+      key="b"
+      team={match.team2}
+      score={match.team2Score}
+      seed={matchIndex * 2 + 2}
+      isWinner={state === 'done' && winnerSide === 'B'}
+      isLoser={state === 'done' && winnerSide === 'A'}
+      isTop={swap}
+      empty={!match.team2}
+      readonly={readonly}
+      onClick={() => clickRow('B')}
+      onDelete={onDeleteTeam && match.team2 ? () => onDeleteTeam(match, 'team2') : undefined}
+    />
+  )
+
+  const cls = ['match', `match--${state}`, isFinal ? 'match--final' : '', isChampionPath ? 'is-champion-path' : '']
+    .filter(Boolean)
+    .join(' ')
+
+  return (
+    <div className={cls}>
+      <div className="match__head" onClick={clickHead}>
+        <span className="match__state">
+          <span className="dot" />
+          {stateLabel}
+        </span>
+        {isFinal && state === 'done' ? (
+          <span className="crown">
+            <Crown size={11} /> CHAMPION
+          </span>
         ) : (
-          <span className="text-sm text-ice-white/40">TBD</span>
+          <span style={{ fontFamily: 'var(--f-mono)', fontSize: 9.5, color: 'var(--text-faint)' }}>
+            R{round}·M{matchIndex + 1}
+          </span>
         )}
       </div>
-    </motion.div>
+      {swap ? (
+        <>
+          {rowB}
+          {rowA}
+        </>
+      ) : (
+        <>
+          {rowA}
+          {rowB}
+        </>
+      )}
+    </div>
   )
 }

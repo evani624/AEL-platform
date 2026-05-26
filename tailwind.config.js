@@ -7,22 +7,34 @@ export default {
   theme: {
     extend: {
       colors: {
-        'deep-indigo': '#141721',
-        'charcoal-grey': '#2A3142',
-        'electric-cyan': '#00F5FF',
+        // ARENA ELEAGUE — violet-led esports palette
+        bg: '#0A0918',
+        'bg-deep': '#060512',
+        surface: '#15122E',
+        'surface-2': '#1B1738',
+        'surface-3': '#221D45',
+        violet: '#8B5CF6',
+        'violet-soft': '#A78BFA',
+        'violet-ice': '#C4B5FD',
+        'violet-deep': '#5B21B6',
+        cyan: '#22D3EE',
+        gold: '#F5C24A',
+        ice: '#F0F5F9',
+        // legacy key kept so any residual `ice-white` utilities still resolve
         'ice-white': '#F0F5F9',
-        'slate-grey': '#1F2633',
+        'text-dim': '#A8A4C7',
+        'text-mute': '#6B6790',
+      },
+      fontFamily: {
+        display: ["'Space Grotesk'", 'system-ui', 'sans-serif'],
+        mono: ["'JetBrains Mono'", 'ui-monospace', 'monospace'],
       },
       boxShadow: {
-        'cyan-glow': '0 0 20px rgba(0, 245, 255, 0.4), 0 0 40px rgba(0, 245, 255, 0.2)',
-        'cyan-glow-strong': '0 0 30px rgba(0, 245, 255, 0.6), 0 0 60px rgba(0, 245, 255, 0.3)',
-        'cyan-glow-navbar': '0 4px 24px rgba(0, 245, 255, 0.1)',
-        'cyan-glow-button': '0 0 20px rgba(0, 245, 255, 0.3)',
-        'cyan-glow-button-hover': '0 0 30px rgba(0, 245, 255, 0.5)',
+        'violet-glow': '0 0 24px -6px rgba(139, 92, 246, 0.5)',
+        'violet-glow-strong': '0 0 40px -8px rgba(139, 92, 246, 0.65)',
       },
       dropShadow: {
-        'cyan-glow': '0 0 20px rgba(0, 245, 255, 0.4)',
-        'cyan-glow-strong': '0 0 30px rgba(0, 245, 255, 0.6)',
+        'violet-glow': '0 0 12px rgba(139, 92, 246, 0.45)',
       },
     },
   },

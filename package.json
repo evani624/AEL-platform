@@ -10,7 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.99.2",
+    "@supabase/supabase-js": "^2.105.4",
     "canvas-confetti": "^1.9.4",
     "framer-motion": "^12.36.0",
     "lucide-react": "^0.577.0",

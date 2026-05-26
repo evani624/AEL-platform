@@ -1,3 +1,5 @@
+import { CATEGORIES } from '../constants/games'
+
 /**
  * Generate bracket structure for a given team size (8, 16, 32, or 64).
  * Returns rounds array: each round has { name, matches: [{ id, team1, team2, winnerId, nextMatchId }] }
@@ -97,5 +99,84 @@ export function getTournamentDisplayName(tournament) {
   const name = tournament?.name ?? ''
   const game = tournament?.game ?? ''
   return game ? `${name} | ${game}` : name
+}
+
+/* ============================================================
+ * Redesign adapters — derive the visual layer from existing data.
+ * No stored fields change; these are pure read helpers.
+ * ============================================================ */
+
+export function categoryLabel(id) {
+  return (CATEGORIES.find((c) => c.id === id) || CATEGORIES[0]).label
+}
+
+/**
+ * Visual match state mapped from the admin-set status:
+ *   final / has-winner -> 'done', in_progress -> 'live', else 'upcoming'.
+ * A match never auto-flips to 'live' just because both slots are filled — the
+ * admin controls the state.
+ */
+export function getMatchState(match) {
+  if (!match) return 'upcoming'
+  if (match.status === 'final' || match.winnerId) return 'done'
+  if (match.status === 'in_progress') return 'live'
+  return 'upcoming'
+}
+
+/** Tournament-level status pill: 'soon' | 'live' | 'done' (follows match states). */
+export function getTournamentStatus(tournament) {
+  const rounds = tournament?.rounds ?? []
+  let total = 0
+  let done = 0
+  let started = 0
+  for (const round of rounds) {
+    for (const m of round.matches ?? []) {
+      total++
+      const st = getMatchState(m)
+      if (st === 'done') {
+        done++
+        started++
+      } else if (st === 'live') {
+        started++
+      }
+    }
+  }
+  if (total === 0 || started === 0) return 'soon'
+  if (done === total) return 'done'
+  return 'live'
+}
+
+/** Which side won this match: 'A' (team1) | 'B' (team2) | null. */
+export function getWinnerSide(match) {
+  if (!match?.winnerId) return null
+  if (match.winnerId === match.team1?.id) return 'A'
+  if (match.winnerId === match.team2?.id) return 'B'
+  return null
+}
+
+/**
+ * If the final is decided, return { name, pathIds } where pathIds is the set of
+ * match ids the champion won (matched by team name, which carries across rounds
+ * even though a team gets a fresh id each round). Otherwise null.
+ */
+export function getChampionInfo(tournament) {
+  const rounds = tournament?.rounds
+  if (!rounds?.length) return null
+  const finalMatch = rounds[rounds.length - 1]?.matches?.[0]
+  if (!finalMatch?.winnerId) return null
+  const side = getWinnerSide(finalMatch)
+  const champTeam = side === 'A' ? finalMatch.team1 : side === 'B' ? finalMatch.team2 : null
+  if (!champTeam) return null
+  const name = champTeam.name
+  const pathIds = new Set()
+  for (const round of rounds) {
+    for (const m of round.matches ?? []) {
+      const s = getWinnerSide(m)
+      if (!s) continue
+      const winTeam = s === 'A' ? m.team1 : m.team2
+      if (winTeam?.name === name) pathIds.add(m.id)
+    }
+  }
+  return { name, pathIds }
 }
 
