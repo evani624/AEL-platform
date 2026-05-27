@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Lock, Eye, EyeOff, Shield, AlertCircle, Check, CheckCircle } from 'lucide-react'
 import Logo from '../components/Logo'
 import { supabase } from '../lib/supabaseClient'
-import { authLinkError, cameFromAuthLink } from '../lib/authLanding'
+import { authLinkError, cameFromAuthLink, takeTokenHashVerification, authLandingDebug } from '../lib/authLanding'
 
 export default function SetPasswordView() {
   const navigate = useNavigate()
@@ -15,39 +15,70 @@ export default function SetPasswordView() {
   const [err, setErr] = useState('')
   const pwRef = useRef(null)
 
-  // Detect the invite / recovery session that Supabase establishes from the link.
+  // Establish the invite / recovery session from the link, then show the form.
   useEffect(() => {
     let mounted = true
     let settled = false
+    console.log('[set-password] landing detected:', authLandingDebug)
+
     const ready = () => {
       if (mounted && !settled) {
         settled = true
         setPhase('ready')
       }
     }
-    const invalid = () => {
+    const invalid = (message) => {
       if (mounted && !settled) {
         settled = true
+        if (message) setErr(message)
         setPhase('invalid')
       }
     }
 
+    // Listener catches the session for the legacy #access_token flow (parsed
+    // asynchronously by detectSessionInUrl) and the PASSWORD_RECOVERY event.
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session) ready()
     })
 
-    supabase.auth.getSession().then(({ data }) => {
+    async function init() {
+      // NEW flow: exchange the single-use token_hash for a session via verifyOtp.
+      // Do this first so an invite/recovery link always wins over any stale session.
+      const otp = takeTokenHashVerification()
+      if (otp) {
+        console.log('[set-password] verifyOtp ->', otp)
+        const { data, error } = await supabase.auth.verifyOtp({
+          token_hash: otp.token_hash,
+          type: otp.type,
+        })
+        if (!mounted) return
+        if (error || !data?.session) {
+          console.error('[set-password] verifyOtp failed:', error)
+          invalid(error?.message || 'This link is invalid or has expired.')
+        } else {
+          console.log('[set-password] verifyOtp success — session established')
+          ready()
+        }
+        return
+      }
+
+      // No token_hash. Either we already have a session (legacy hash parsed, or a
+      // logged-in user), or we wait for the listener / decide it's invalid.
+      const { data } = await supabase.auth.getSession()
       if (!mounted) return
       if (data.session) ready()
-      else if (authLinkError || !cameFromAuthLink) invalid()
-      // else: token present, session still resolving — wait for onAuthStateChange
-    })
+      else if (authLinkError || !cameFromAuthLink) invalid(authLinkError || undefined)
+      // else: legacy token present, session still resolving — wait for the listener.
+    }
 
-    // Fallback: if no session ever materialises, treat the link as expired.
-    const timer = setTimeout(invalid, 5000)
+    init()
+
+    // Safety net: if nothing ever establishes a session, show the invalid state.
+    const timer = setTimeout(() => invalid(authLinkError || undefined), 8000)
 
     return () => {
       mounted = false
+      settled = true
       sub.subscription.unsubscribe()
       clearTimeout(timer)
     }

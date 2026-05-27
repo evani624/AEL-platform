@@ -1,25 +1,49 @@
-// Captured ONCE at module load — before the Supabase client parses and clears
-// the URL. Supabase invite / password-recovery links arrive with their tokens
-// in the URL (implicit flow puts them in the hash, e.g.
-// #access_token=...&type=invite|recovery; PKCE uses ?code=...). Expired links
-// arrive as #error=...&error_description=...
-const url = typeof window !== 'undefined' ? `${window.location.hash}|${window.location.search}` : ''
+// Captured ONCE at module load — BEFORE anything (the Supabase client or React
+// Router) can strip tokens from the URL.
+//
+// Supabase email links (invite / recovery / signup) arrive in one of two shapes:
+//   NEW (current default):  ?token_hash=pkce_...&type=invite   → verifyOtp()
+//   LEGACY (older links):   #access_token=...&type=invite       → detectSessionInUrl
+// Expired/invalid links arrive as ?error=...&error_description=... (or in #).
 
-export const authLinkType = (url.match(/type=(recovery|invite|signup|magiclink|email_change)/) || [])[1] || null
+const rawHash = typeof window !== 'undefined' ? window.location.hash.replace(/^#/, '') : ''
+const rawSearch = typeof window !== 'undefined' ? window.location.search.replace(/^\?/, '') : ''
+const hashParams = new URLSearchParams(rawHash)
+const queryParams = new URLSearchParams(rawSearch)
+const pick = (name) => queryParams.get(name) || hashParams.get(name)
 
-const errMatch = url.match(/error_description=([^&]+)/)
-export const authLinkError = errMatch ? decodeURIComponent(errMatch[1].replace(/\+/g, ' ')) : null
+export const authLinkType = pick('type') // invite | recovery | signup | magiclink | email_change | null
+export const tokenHash = pick('token_hash')
+const accessToken = hashParams.get('access_token')
+const code = queryParams.get('code')
+export const authLinkError = pick('error_description') || pick('error') || null
 
-// Did the user arrive here from a Supabase auth email link (invite / recovery /
-// expired)? Used by SetPasswordView to decide between "waiting" and "invalid".
-export const cameFromAuthLink =
-  authLinkType === 'recovery' ||
-  authLinkType === 'invite' ||
-  /[#&?](access_token|code)=/.test(url) ||
-  Boolean(authLinkError)
+export const authLandingDebug = {
+  href: typeof window !== 'undefined' ? window.location.href : '',
+  search: rawSearch || '(none)',
+  hash: rawHash || '(none)',
+  type: authLinkType,
+  hasTokenHash: Boolean(tokenHash),
+  hasAccessToken: Boolean(accessToken),
+  hasCode: Boolean(code),
+  error: authLinkError,
+}
 
-// One-shot: returns true only the first time, so we route the user to
-// /set-password exactly once and never trap them there afterwards.
+export const cameFromAuthLink = Boolean(
+  tokenHash ||
+    accessToken ||
+    code ||
+    authLinkError ||
+    ['invite', 'recovery', 'signup', 'magiclink', 'email_change'].includes(authLinkType)
+)
+
+// Log the raw landing params so the link format can be confirmed from the
+// browser console (only when something auth-ish is present in the URL).
+if (typeof window !== 'undefined' && (rawSearch || rawHash)) {
+  console.log('[auth-landing] URL params at load:', authLandingDebug)
+}
+
+// One-shot: route the user to /set-password exactly once (never trap them there).
 let redirectPending = cameFromAuthLink
 export function takeAuthRedirect() {
   if (redirectPending) {
@@ -27,4 +51,15 @@ export function takeAuthRedirect() {
     return true
   }
   return false
+}
+
+// One-shot: a token_hash is single-use, so it must be exchanged via verifyOtp
+// exactly once (a second attempt — e.g. React StrictMode's double-invoke — fails).
+let tokenHashPending = Boolean(tokenHash)
+export function takeTokenHashVerification() {
+  if (tokenHashPending && tokenHash) {
+    tokenHashPending = false
+    return { token_hash: tokenHash, type: authLinkType || 'invite' }
+  }
+  return null
 }
