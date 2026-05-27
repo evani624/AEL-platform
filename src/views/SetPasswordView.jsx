@@ -1,80 +1,85 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Lock, Eye, EyeOff, Shield, AlertCircle, Check, CheckCircle } from 'lucide-react'
+import { Lock, Eye, EyeOff, Shield, AlertCircle, Check, CheckCircle, Mail, KeyRound } from 'lucide-react'
 import Logo from '../components/Logo'
 import { supabase } from '../lib/supabaseClient'
-import { authLinkError, cameFromAuthLink, takeTokenHashVerification, authLandingDebug } from '../lib/authLanding'
+import { authLinkType, authLinkError, flowHint, prefillEmail, takeTokenHashVerification, authLandingDebug } from '../lib/authLanding'
 
 export default function SetPasswordView() {
   const navigate = useNavigate()
-  const [phase, setPhase] = useState('checking') // checking | ready | invalid | success
+  const [phase, setPhase] = useState('checking') // checking | code | ready | success
+
+  // Code-entry (primary, scanner-proof) state.
+  const [email, setEmail] = useState(prefillEmail || '')
+  const [code, setCode] = useState('')
+  const [verifying, setVerifying] = useState(false)
+  const [note, setNote] = useState('')
+
+  // Set-password state.
   const [pw, setPw] = useState('')
   const [pw2, setPw2] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  const [err, setErr] = useState('')
-  const pwRef = useRef(null)
 
-  // Establish the invite / recovery session from the link, then show the form.
+  const [err, setErr] = useState('')
+  const firstFieldRef = useRef(null)
+
   useEffect(() => {
     let mounted = true
     let settled = false
     console.log('[set-password] landing detected:', authLandingDebug)
 
-    const ready = () => {
+    const toReady = () => {
       if (mounted && !settled) {
         settled = true
         setPhase('ready')
       }
     }
-    const invalid = (message) => {
+    const toCode = (message) => {
       if (mounted && !settled) {
         settled = true
-        if (message) setErr(message)
-        setPhase('invalid')
+        if (message) setNote(message)
+        setPhase('code')
       }
     }
 
-    // Listener catches the session for the legacy #access_token flow (parsed
-    // asynchronously by detectSessionInUrl) and the PASSWORD_RECOVERY event.
+    // Legacy #access_token flow (parsed async by detectSessionInUrl) + recovery event.
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session) ready()
+      if (session) toReady()
     })
 
     async function init() {
-      // NEW flow: exchange the single-use token_hash for a session via verifyOtp.
-      // Do this first so an invite/recovery link always wins over any stale session.
+      // Fallback 1: a token_hash link, IF one ever survives a scanner unburned.
       const otp = takeTokenHashVerification()
       if (otp) {
-        console.log('[set-password] verifyOtp ->', otp)
-        const { data, error } = await supabase.auth.verifyOtp({
-          token_hash: otp.token_hash,
-          type: otp.type,
-        })
+        console.log('[set-password] verifyOtp(token_hash) type=', otp.type)
+        const { data, error } = await supabase.auth.verifyOtp({ token_hash: otp.token_hash, type: otp.type })
         if (!mounted) return
-        if (error || !data?.session) {
-          console.error('[set-password] verifyOtp failed:', error)
-          invalid(error?.message || 'This link is invalid or has expired.')
-        } else {
-          console.log('[set-password] verifyOtp success — session established')
-          ready()
+        if (!error && data?.session) {
+          console.log('[set-password] token_hash OK — session established')
+          toReady()
+          return
         }
+        console.warn('[set-password] token_hash failed, using code entry:', error)
+        toCode('Enter the code from your email to continue.')
         return
       }
 
-      // No token_hash. Either we already have a session (legacy hash parsed, or a
-      // logged-in user), or we wait for the listener / decide it's invalid.
+      // Fallback 2: already signed in (legacy hash parsed, or an existing session).
       const { data } = await supabase.auth.getSession()
       if (!mounted) return
-      if (data.session) ready()
-      else if (authLinkError || !cameFromAuthLink) invalid(authLinkError || undefined)
-      // else: legacy token present, session still resolving — wait for the listener.
+      if (data.session) {
+        toReady()
+        return
+      }
+
+      // PRIMARY: bare landing (or an expired/burned link) → type the code.
+      toCode(authLinkError ? 'That link has expired — enter the code from your email instead.' : '')
     }
 
     init()
-
-    // Safety net: if nothing ever establishes a session, show the invalid state.
-    const timer = setTimeout(() => invalid(authLinkError || undefined), 8000)
+    // Safety net: never get stuck on the spinner.
+    const timer = setTimeout(() => toCode(''), 8000)
 
     return () => {
       mounted = false
@@ -85,11 +90,46 @@ export default function SetPasswordView() {
   }, [])
 
   useEffect(() => {
-    if (phase === 'ready') {
-      const id = setTimeout(() => pwRef.current?.focus(), 60)
+    if (phase === 'code' || phase === 'ready') {
+      const id = setTimeout(() => firstFieldRef.current?.focus(), 60)
       return () => clearTimeout(id)
     }
   }, [phase])
+
+  async function verifyCode(e) {
+    e.preventDefault()
+    setErr('')
+    const cleanEmail = email.trim()
+    const cleanCode = code.trim()
+    if (!cleanEmail.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
+      setErr('Enter the email you were invited with')
+      return
+    }
+    if (cleanCode.length < 6) {
+      setErr('Enter the 6-digit code from your email')
+      return
+    }
+    setVerifying(true)
+    // If the page link carried a hint use it; otherwise try invite then recovery.
+    const typeHint = authLinkType || flowHint
+    const types = typeHint ? [typeHint] : ['invite', 'recovery']
+    let lastErr = null
+    for (const t of types) {
+      console.log('[set-password] verifyOtp(code) type=', t)
+      const { data, error } = await supabase.auth.verifyOtp({ email: cleanEmail, token: cleanCode, type: t })
+      if (!error && data?.session) {
+        setVerifying(false)
+        setErr('')
+        setNote('')
+        setPhase('ready')
+        return
+      }
+      lastErr = error
+    }
+    setVerifying(false)
+    console.error('[set-password] code verify failed:', lastErr)
+    setErr(lastErr?.message || 'That code is invalid or has expired. Ask for a new invite.')
+  }
 
   async function submit(e) {
     e.preventDefault()
@@ -106,7 +146,7 @@ export default function SetPasswordView() {
     const { error } = await supabase.auth.updateUser({ password: pw })
     setSubmitting(false)
     if (error) {
-      setErr(error.message || 'Could not set password — try opening the link again.')
+      setErr(error.message || 'Could not set password — try again.')
       return
     }
     setPhase('success')
@@ -125,35 +165,102 @@ export default function SetPasswordView() {
 
         {phase === 'checking' && (
           <div className="login__heading">
-            <h1>Verifying your link…</h1>
+            <h1>Verifying…</h1>
             <p style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
               <span className="spinner" /> One moment
             </p>
           </div>
         )}
 
-        {phase === 'invalid' && (
-          <>
+        {phase === 'code' && (
+          <form onSubmit={verifyCode}>
             <div className="login__heading">
-              <h1>Link invalid or expired</h1>
-              <p>
-                {authLinkError ||
-                  'This invite or reset link is no longer valid. Ask for a new invite, or sign in if you already have a password.'}
-              </p>
+              <h1>Enter your code</h1>
+              <p>Enter the email you were invited with and the 6-digit code from your email.</p>
             </div>
-            <button className="btn btn--primary login__btn" onClick={() => navigate('/login', { replace: true })}>
-              Go to sign in
-            </button>
-          </>
-        )}
 
-        {phase === 'success' && (
-          <div className="login__heading">
-            <h1 style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
-              <CheckCircle size={20} style={{ color: 'var(--success)' }} /> Password set
-            </h1>
-            <p>Signing you in…</p>
-          </div>
+            {note && !err && (
+              <div
+                className="login__error"
+                style={{
+                  background: 'rgba(139,92,246,0.08)',
+                  borderColor: 'rgba(139,92,246,0.30)',
+                  color: 'var(--violet-ice)',
+                }}
+              >
+                <AlertCircle size={14} />
+                <span>{note}</span>
+              </div>
+            )}
+            {err && (
+              <div className="login__error" role="alert" key={err}>
+                <AlertCircle size={14} />
+                <span>{err}</span>
+              </div>
+            )}
+
+            <div className="field">
+              <label className="field__label">Email</label>
+              <div style={{ position: 'relative' }}>
+                <Mail
+                  size={14}
+                  style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-mute)' }}
+                />
+                <input
+                  ref={firstFieldRef}
+                  className="field__input"
+                  type="email"
+                  placeholder="you@arena.gg"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
+                  style={{ paddingLeft: 36 }}
+                />
+              </div>
+            </div>
+
+            <div className="field">
+              <label className="field__label">6-digit code</label>
+              <div style={{ position: 'relative' }}>
+                <KeyRound
+                  size={14}
+                  style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-mute)' }}
+                />
+                <input
+                  className="field__input"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="123456"
+                  value={code}
+                  onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 10))}
+                  style={{ paddingLeft: 36, letterSpacing: '0.3em', fontFamily: 'var(--f-mono)' }}
+                />
+              </div>
+            </div>
+
+            <button type="submit" className="btn btn--primary login__btn" disabled={verifying} style={{ marginTop: 6 }}>
+              {verifying ? (
+                <>
+                  <span className="spinner" />
+                  Verifying…
+                </>
+              ) : (
+                <>
+                  <Check size={14} />
+                  Verify code
+                </>
+              )}
+            </button>
+
+            <div className="login__divider" />
+            <div
+              className="login__footnote"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, width: '100%', justifyContent: 'center' }}
+            >
+              <Shield size={11} />
+              Secured by Supabase Auth
+            </div>
+          </form>
         )}
 
         {phase === 'ready' && (
@@ -178,7 +285,7 @@ export default function SetPasswordView() {
                   style={{ position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-mute)' }}
                 />
                 <input
-                  ref={pwRef}
+                  ref={firstFieldRef}
                   className="field__input"
                   type={showPw ? 'text' : 'password'}
                   placeholder="••••••••"
@@ -241,6 +348,15 @@ export default function SetPasswordView() {
               Secured by Supabase Auth
             </div>
           </form>
+        )}
+
+        {phase === 'success' && (
+          <div className="login__heading">
+            <h1 style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+              <CheckCircle size={20} style={{ color: 'var(--success)' }} /> Password set
+            </h1>
+            <p>Signing you in…</p>
+          </div>
         )}
       </div>
     </div>

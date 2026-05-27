@@ -14,6 +14,10 @@ const pick = (name) => queryParams.get(name) || hashParams.get(name)
 
 export const authLinkType = pick('type') // invite | recovery | signup | magiclink | email_change | null
 export const tokenHash = pick('token_hash')
+// Optional hints carried by a SAFE (tokenless) page link, e.g.
+//   {{ .SiteURL }}/set-password?flow=invite&email={{ .Email }}
+export const flowHint = pick('flow') // 'invite' | 'recovery' | null
+export const prefillEmail = pick('email')
 const accessToken = hashParams.get('access_token')
 const code = queryParams.get('code')
 export const authLinkError = pick('error_description') || pick('error') || null
