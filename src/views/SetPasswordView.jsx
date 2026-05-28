@@ -105,8 +105,8 @@ export default function SetPasswordView() {
       setErr('Enter the email you were invited with')
       return
     }
-    if (cleanCode.length < 6) {
-      setErr('Enter the 6-digit code from your email')
+    if (!cleanCode) {
+      setErr('Enter the verification code from your email')
       return
     }
     setVerifying(true)
@@ -176,7 +176,7 @@ export default function SetPasswordView() {
           <form onSubmit={verifyCode}>
             <div className="login__heading">
               <h1>Enter your code</h1>
-              <p>Enter the email you were invited with and the 6-digit code from your email.</p>
+              <p>Enter the email you were invited with and the verification code from your email.</p>
             </div>
 
             {note && !err && (
@@ -220,7 +220,7 @@ export default function SetPasswordView() {
             </div>
 
             <div className="field">
-              <label className="field__label">6-digit code</label>
+              <label className="field__label">Verification code</label>
               <div style={{ position: 'relative' }}>
                 <KeyRound
                   size={14}
@@ -230,10 +230,11 @@ export default function SetPasswordView() {
                   className="field__input"
                   inputMode="numeric"
                   autoComplete="one-time-code"
-                  placeholder="123456"
+                  maxLength={10}
+                  placeholder="Code from your email"
                   value={code}
                   onChange={(e) => setCode(e.target.value.replace(/[^0-9]/g, '').slice(0, 10))}
-                  style={{ paddingLeft: 36, letterSpacing: '0.3em', fontFamily: 'var(--f-mono)' }}
+                  style={{ paddingLeft: 36, letterSpacing: '0.2em', fontFamily: 'var(--f-mono)' }}
                 />
               </div>
             </div>
