@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS tournaments (
   game_name TEXT DEFAULT '',
   category TEXT NOT NULL DEFAULT 'mixed' CHECK (category IN ('mixed', 'male', 'female')),
   size INT NOT NULL CHECK (size IN (8, 16, 32, 64)),
+  display_order INTEGER NOT NULL DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
@@ -18,6 +19,27 @@ CREATE TABLE IF NOT EXISTS tournaments (
 ALTER TABLE tournaments
   ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'mixed'
   CHECK (category IN ('mixed', 'male', 'female'));
+
+-- Per-tournament admin-controlled sort order (drag-and-drop in the sidebar).
+ALTER TABLE tournaments
+  ADD COLUMN IF NOT EXISTS display_order INTEGER NOT NULL DEFAULT 0;
+
+-- One-time backfill: if every row is still at the default 0, seed the order
+-- by created_at DESC so the newest sits on top (matches the previous list
+-- ordering). Subsequent runs no-op once an admin has reordered anything.
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM tournaments WHERE display_order <> 0) THEN
+    WITH ranked AS (
+      SELECT id, (ROW_NUMBER() OVER (ORDER BY created_at DESC) - 1)::int AS rn
+      FROM tournaments
+    )
+    UPDATE tournaments t
+       SET display_order = ranked.rn
+      FROM ranked
+     WHERE t.id = ranked.id;
+  END IF;
+END $$;
 
 -- Matches table (bracket state). Team data lives here (no separate teams table),
 -- so the match policies below also protect team names/colors/scores.
@@ -34,6 +56,8 @@ CREATE TABLE IF NOT EXISTS matches (
   team_2_score INT DEFAULT 0,
   winner_id TEXT,
   status TEXT NOT NULL DEFAULT 'upcoming' CHECK (status IN ('upcoming', 'in_progress', 'final')),
+  match_date DATE NULL,
+  match_time TIME NULL,
   UNIQUE(tournament_id, round_number, match_index)
 );
 
@@ -45,6 +69,11 @@ ALTER TABLE matches
 
 -- Backfill: any already-decided match (has a winner) is Final.
 UPDATE matches SET status = 'final' WHERE winner_id IS NOT NULL AND status <> 'final';
+
+-- Optional per-match scheduled date and time (independent, either can be NULL).
+ALTER TABLE matches
+  ADD COLUMN IF NOT EXISTS match_date DATE NULL,
+  ADD COLUMN IF NOT EXISTS match_time TIME NULL;
 
 -- Index for faster lookups
 CREATE INDEX IF NOT EXISTS idx_matches_tournament_id ON matches(tournament_id);

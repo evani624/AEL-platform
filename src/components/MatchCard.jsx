@@ -2,6 +2,30 @@ import { Plus, X, Crown } from 'lucide-react'
 import { colorHex } from '../constants/teamColors'
 import { getMatchState, getWinnerSide } from '../utils/bracketUtils'
 
+// Compact eyebrow format: "APR 13", "9:00 PM", or "APR 13 · 9:00 PM"
+function formatMatchWhen(date, time) {
+  const parts = []
+  if (date) {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(date)
+    if (m) {
+      const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]))
+      const month = d.toLocaleString('en', { month: 'short' }).toUpperCase()
+      parts.push(`${month} ${d.getDate()}`)
+    }
+  }
+  if (time) {
+    const tm = /^(\d{1,2}):(\d{2})/.exec(String(time))
+    if (tm) {
+      const h = Number(tm[1])
+      const mm = tm[2]
+      const period = h >= 12 ? 'PM' : 'AM'
+      const h12 = ((h + 11) % 12) + 1
+      parts.push(`${h12}:${mm} ${period}`)
+    }
+  }
+  return parts.join(' · ')
+}
+
 function TeamRow({ team, score, seed, isWinner, isLoser, isTop, empty, readonly, onClick, onDelete }) {
   let cls = 'match__row'
   if (isWinner) cls += ' match__row--winner'
@@ -50,7 +74,9 @@ function TeamRow({ team, score, seed, isWinner, isLoser, isTop, empty, readonly,
 export default function MatchCard({ match, readonly, isFinal, isChampionPath, onSlotClick, onDeleteTeam }) {
   const state = getMatchState(match)
   const winnerSide = getWinnerSide(match)
-  const stateLabel = state === 'live' ? 'Live' : state === 'done' ? 'Done' : 'Upcoming'
+  // 'Soon' (not 'Upcoming') matches the sidebar SOON pill and keeps the head
+  // row narrow so cards stay the same width whether a date is set or not.
+  const stateLabel = state === 'live' ? 'Live' : state === 'done' ? 'Done' : 'Soon'
   const matchIndex = match._matchIndex ?? 0
   const round = (match._roundNumber ?? 0) + 1
 
@@ -102,6 +128,8 @@ export default function MatchCard({ match, readonly, isFinal, isChampionPath, on
     .filter(Boolean)
     .join(' ')
 
+  const when = formatMatchWhen(match.matchDate, match.matchTime)
+
   return (
     <div className={cls}>
       <div className="match__head" onClick={clickHead}>
@@ -109,6 +137,7 @@ export default function MatchCard({ match, readonly, isFinal, isChampionPath, on
           <span className="dot" />
           {stateLabel}
         </span>
+        {when && <span className="match__when">{when}</span>}
         {isFinal && state === 'done' ? (
           <span className="crown">
             <Crown size={11} /> CHAMPION

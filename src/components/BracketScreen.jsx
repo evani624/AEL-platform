@@ -32,7 +32,7 @@ function BracketHeader({ tournament }) {
       </div>
       <div className="bracket-legend">
         <span className="bracket-legend__item">
-          <span className="bracket-legend__dot bracket-legend__dot--up" /> Upcoming
+          <span className="bracket-legend__dot bracket-legend__dot--up" /> Soon
         </span>
         <span className="bracket-legend__item">
           <span className="bracket-legend__dot bracket-legend__dot--prog" /> In&nbsp;progress
@@ -92,6 +92,7 @@ export default function BracketScreen({
   onEditTournament,
   onDeleteTournament,
   onShare,
+  onReorder,
   onSlotClick,
   onDeleteTeam,
   onLogout,
@@ -128,7 +129,7 @@ export default function BracketScreen({
           onEdit={onEditTournament}
           onDelete={onDeleteTournament}
           onShare={onShare}
-          onAddTournament={onAddTournament}
+          onReorder={onReorder}
         />
         <button
           className={`sidebar-reveal ${collapsed ? '' : 'sidebar-reveal--open'}`}

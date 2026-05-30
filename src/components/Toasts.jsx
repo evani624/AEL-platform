@@ -1,4 +1,4 @@
-import { Check, Crown, Trash2, LogOut, Play, Link2, Sparkles } from 'lucide-react'
+import { Check, Crown, Trash2, LogOut, Play, Link2, Sparkles, AlertCircle } from 'lucide-react'
 
 const ICONS = {
   check: Check,
@@ -8,6 +8,7 @@ const ICONS = {
   play: Play,
   link: Link2,
   sparkles: Sparkles,
+  alert: AlertCircle,
 }
 
 export default function Toasts({ items = [] }) {

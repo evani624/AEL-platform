@@ -12,7 +12,7 @@ const ROUND_NAMES = {
  * Build app tournament structure from DB rows
  */
 function buildTournamentFromDb(tournamentRow, matchesRows) {
-  const { id, name, game_name, size, category } = tournamentRow
+  const { id, name, game_name, size, category, display_order } = tournamentRow
   const teamSize = size
   const rounds = ROUND_NAMES[teamSize].map((roundName) => ({
     name: roundName,
@@ -64,6 +64,8 @@ function buildTournamentFromDb(tournamentRow, matchesRows) {
         team2Score: row.team_2_score ?? null,
         winnerId,
         status,
+        matchDate: row.match_date ?? null,
+        matchTime: row.match_time ?? null,
         nextMatchId: nextMatchId || null,
         _roundNumber: r,
         _matchIndex: matchIdx,
@@ -85,6 +87,7 @@ function buildTournamentFromDb(tournamentRow, matchesRows) {
     category: category || 'mixed',
     teamSize,
     rounds,
+    displayOrder: display_order ?? 0,
   }
 }
 
@@ -108,10 +111,20 @@ export async function fetchTournamentById(id) {
  * Fetch all tournaments with their matches
  */
 export async function fetchTournaments() {
-  const { data: tournaments, error: tError } = await supabase
+  // Primary: admin-set display_order, with created_at DESC as a stable tie-breaker.
+  let { data: tournaments, error: tError } = await supabase
     .from('tournaments')
     .select('*')
+    .order('display_order', { ascending: true })
     .order('created_at', { ascending: false })
+
+  // Graceful fallback if display_order column hasn't been migrated yet.
+  if (tError && isMissingColumn(tError)) {
+    ;({ data: tournaments, error: tError } = await supabase
+      .from('tournaments')
+      .select('*')
+      .order('created_at', { ascending: false }))
+  }
 
   if (tError) throw tError
   if (!tournaments?.length) return []
@@ -197,12 +210,11 @@ export async function deleteTournament(id) {
   if (error) throw error
 }
 
-// True when an error is the `status` column not existing yet (pre-migration).
-function isMissingStatusColumn(error) {
+// True when a write/select failed because a column hasn't been migrated yet.
+// PGRST204 = PostgREST schema-cache miss; 42703 = Postgres undefined_column.
+function isMissingColumn(error) {
   if (!error) return false
-  if (error.code === 'PGRST204' || error.code === '42703') return true
-  const msg = (error.message || '').toLowerCase()
-  return msg.includes('status') && (msg.includes('column') || msg.includes('schema cache'))
+  return error.code === 'PGRST204' || error.code === '42703'
 }
 
 /**
@@ -239,22 +251,49 @@ export async function upsertMatch(tournamentId, matchId, updates) {
           : 'team2'
   }
   if (updates.status !== undefined) dbUpdates.status = updates.status
+  if (updates.matchDate !== undefined) dbUpdates.match_date = updates.matchDate || null
+  if (updates.matchTime !== undefined) dbUpdates.match_time = updates.matchTime || null
 
   let { error: updateError } = await supabase
     .from('matches')
     .update(dbUpdates)
     .eq('id', matchId)
 
-  // Graceful fallback: if the `status` column hasn't been migrated yet, persist
-  // everything else so the app keeps working before supabase-schema.sql is run.
-  if (updateError && dbUpdates.status !== undefined && isMissingStatusColumn(updateError)) {
+  // Graceful fallback: if any of the optional columns (status / match_date /
+  // match_time) haven't been migrated yet, drop them and retry so the rest
+  // (winner, scores, teams) still persists.
+  const OPTIONAL = ['status', 'match_date', 'match_time']
+  const hasOptional = OPTIONAL.some((k) => k in dbUpdates)
+  if (updateError && hasOptional && isMissingColumn(updateError)) {
     const rest = { ...dbUpdates }
-    delete rest.status
+    for (const k of OPTIONAL) delete rest[k]
     ;({ error: updateError } = await supabase.from('matches').update(rest).eq('id', matchId))
   }
 
   if (updateError) throw updateError
   return match
+}
+
+/**
+ * Persist the new tournament order from drag-and-drop. One UPDATE per row
+ * (small N — admins manage a handful); silently no-ops if display_order
+ * isn't migrated yet so the UI stays usable.
+ */
+export async function updateTournamentsOrder(orderedIds) {
+  if (!orderedIds?.length) return
+  const results = await Promise.all(
+    orderedIds.map((id, i) =>
+      supabase.from('tournaments').update({ display_order: i }).eq('id', id)
+    )
+  )
+  const firstErr = results.find((r) => r.error)?.error
+  if (firstErr) {
+    if (isMissingColumn(firstErr)) {
+      console.warn('[reorder] display_order column not migrated yet — order not persisted.')
+      return
+    }
+    throw firstErr
+  }
 }
 
 /**

@@ -16,6 +16,7 @@ import {
   deleteTournament as deleteTournamentSupabase,
   upsertMatch,
   updateNextMatchWithWinner,
+  updateTournamentsOrder,
 } from '../lib/supabaseService'
 
 export default function AdminView() {
@@ -247,8 +248,27 @@ export default function AdminView() {
     [selectedTournamentId, tournaments]
   )
 
+  const handleReorder = useCallback(
+    async (orderedIds) => {
+      const prev = tournaments
+      const byId = new Map(tournaments.map((t) => [t.id, t]))
+      const reordered = orderedIds.map((id) => byId.get(id)).filter(Boolean)
+      // Optimistic UI update.
+      setTournaments(reordered)
+      try {
+        await updateTournamentsOrder(orderedIds)
+        pushToast({ title: 'Order saved', icon: 'check' })
+      } catch (err) {
+        // Roll back on failure.
+        setTournaments(prev)
+        pushToast({ title: 'Couldn’t save order', sub: err.message, icon: 'alert' })
+      }
+    },
+    [tournaments, pushToast]
+  )
+
   const handleMatchResultConfirm = useCallback(
-    async ({ status, winnerId, team1Score, team2Score }) => {
+    async ({ status, winnerId, team1Score, team2Score, matchDate, matchTime }) => {
       const { match } = matchResultModal
       if (!match || !selectedTournamentId) return
 
@@ -276,6 +296,8 @@ export default function AdminView() {
           winnerId: winnerIdToSave,
           team1Score: s1,
           team2Score: s2,
+          matchDate: matchDate ?? null,
+          matchTime: matchTime ?? null,
         })
         // Only a Final result advances a winner to the next round.
         if (isFinalState && winner && !isFinalMatch) {
@@ -294,7 +316,15 @@ export default function AdminView() {
                 ...round,
                 matches: round.matches.map((m) => {
                   if (m.id === match.id) {
-                    return { ...m, status, winnerId: winnerIdToSave, team1Score: s1, team2Score: s2 }
+                    return {
+                      ...m,
+                      status,
+                      winnerId: winnerIdToSave,
+                      team1Score: s1,
+                      team2Score: s2,
+                      matchDate: matchDate ?? null,
+                      matchTime: matchTime ?? null,
+                    }
                   }
                   if (
                     isFinalState &&
@@ -364,6 +394,7 @@ export default function AdminView() {
         onEditTournament={handleEditTournament}
         onDeleteTournament={handleDeleteTournament}
         onShare={handleShare}
+        onReorder={handleReorder}
         onSlotClick={handleSlotClick}
         onDeleteTeam={handleDeleteTeam}
         onLogout={handleLogout}

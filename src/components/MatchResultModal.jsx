@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { Check, AlertCircle, Crown } from 'lucide-react'
 import Modal from './Modal'
+import DateField from './DateField'
+import TimeField from './TimeField'
 import { colorHex } from '../constants/teamColors'
 
 const STATES = [
@@ -60,6 +62,12 @@ export default function MatchResultModal({ isOpen, onClose, match, onConfirm, ga
     if (match?.winnerId) return 'final'
     return match?.status || 'upcoming'
   })
+  // Optional schedule — independent of status/scores. HTML inputs want
+  // YYYY-MM-DD for date and HH:MM for time.
+  const [matchDate, setMatchDate] = useState(match?.matchDate || '')
+  const [matchTime, setMatchTime] = useState(
+    match?.matchTime ? String(match.matchTime).slice(0, 5) : ''
+  )
   const [err, setErr] = useState('')
 
   if (!isOpen || !match) return null
@@ -90,6 +98,7 @@ export default function MatchResultModal({ isOpen, onClose, match, onConfirm, ga
   const winner = isFinal && sa != null && sb != null && sa !== sb ? (sa > sb ? 'A' : 'B') : null
 
   const submit = () => {
+    const schedule = { matchDate: matchDate || null, matchTime: matchTime || null }
     if (isFinal) {
       if (sa == null || sb == null || isNaN(sa) || isNaN(sb)) {
         setErr('Both scores required to mark as Final')
@@ -100,10 +109,10 @@ export default function MatchResultModal({ isOpen, onClose, match, onConfirm, ga
         return
       }
       const winnerId = sa > sb ? a.id : b.id
-      onConfirm?.({ status: 'final', winnerId, team1Score: sa, team2Score: sb })
+      onConfirm?.({ status: 'final', winnerId, team1Score: sa, team2Score: sb, ...schedule })
     } else {
       // Upcoming / In progress — no winner required.
-      onConfirm?.({ status, winnerId: null, team1Score: sa, team2Score: sb })
+      onConfirm?.({ status, winnerId: null, team1Score: sa, team2Score: sb, ...schedule })
     }
     onClose?.()
   }
@@ -177,6 +186,11 @@ export default function MatchResultModal({ isOpen, onClose, match, onConfirm, ga
             {err}
           </div>
         )}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+        <DateField label="Date (optional)" value={matchDate} onChange={setMatchDate} placeholder="Select date" />
+        <TimeField label="Time (optional)" value={matchTime} onChange={setMatchTime} placeholder="Select time" />
       </div>
 
       {isFinal && winner && (

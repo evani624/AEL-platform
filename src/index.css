@@ -539,6 +539,214 @@ input, button, textarea { font-family: inherit; }
   top: 8px; bottom: 8px;
   box-shadow: 0 0 12px rgba(139,92,246,0.7);
 }
+/* Sidebar drag-to-reorder: lift + violet glow on the row being dragged. */
+.t-row.is-dragging {
+  background: linear-gradient(180deg, rgba(139,92,246,0.22), rgba(139,92,246,0.08));
+  border-color: rgba(139,92,246,0.45);
+  box-shadow: 0 0 0 1px rgba(139,92,246,0.5), 0 18px 38px -10px rgba(139,92,246,0.6);
+  cursor: grabbing;
+  z-index: 50;
+}
+/* ============================================================
+   CUSTOM DATE / TIME PICKERS — used in MatchResultModal
+   (replace native inputs; consistent across Chrome/Safari/Firefox)
+   ============================================================ */
+.picker-trigger {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 11px 13px;
+  color: var(--ice);
+  font-family: var(--f-display);
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 200ms var(--ease);
+}
+.picker-trigger:hover { border-color: var(--line-strong); }
+.picker-trigger.is-open,
+.picker-trigger:focus-visible {
+  outline: none;
+  border-color: rgba(139,92,246,0.6);
+  background: rgba(139,92,246,0.06);
+  box-shadow: 0 0 0 4px rgba(139,92,246,0.12);
+}
+.picker-trigger__val { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.picker-trigger__placeholder { flex: 1; color: var(--text-mute); }
+.picker-clear {
+  width: 22px; height: 22px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.05);
+  color: var(--text-dim);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 160ms var(--ease);
+}
+.picker-clear:hover { background: rgba(244,114,182,0.15); color: #F9A8D4; }
+.picker-clear:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(139,92,246,0.4);
+}
+
+.picker-pop {
+  /* Position is set inline by usePopoverPlacement (portal to body + fixed +
+     clamped to viewport). z-index sits above the modal-veil (200) and toasts (300). */
+  z-index: 400;
+  max-width: calc(100vw - 24px);
+  max-height: calc(100vh - 24px);
+  overflow: hidden;
+  background: linear-gradient(180deg, rgba(28,24,66,0.98), rgba(21,18,46,0.98));
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  padding: 8px;
+  box-shadow: 0 20px 50px -10px rgba(0,0,0,0.7), 0 0 30px -10px rgba(139,92,246,0.45);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  animation: menu-in 220ms var(--ease-out);
+}
+
+/* ---- DayPicker (react-day-picker) violet theme ---- */
+.picker-pop .rdp-root {
+  --rdp-accent-color: var(--violet);
+  --rdp-accent-background-color: rgba(139,92,246,0.22);
+  --rdp-background-color: transparent;
+  --rdp-day_button-border-radius: 6px;
+  --rdp-day_button-height: 32px;
+  --rdp-day_button-width: 32px;
+  --rdp-day-height: 36px;
+  --rdp-day-width: 36px;
+  --rdp-weekday-padding: 6px 0;
+  --rdp-nav_button-height: 28px;
+  --rdp-nav_button-width: 28px;
+  color: var(--ice);
+  font-family: var(--f-display);
+}
+.picker-pop .rdp-month_caption {
+  color: var(--ice);
+  font-weight: 600;
+  font-size: 13px;
+  letter-spacing: 0.01em;
+}
+.picker-pop .rdp-weekday {
+  color: var(--text-mute);
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.picker-pop .rdp-nav button {
+  color: var(--violet-ice);
+  background: rgba(139,92,246,0.10);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  transition: all 160ms var(--ease);
+}
+.picker-pop .rdp-nav button:hover {
+  background: rgba(139,92,246,0.22);
+  border-color: rgba(139,92,246,0.4);
+}
+.picker-pop .rdp-day_button {
+  color: var(--ice);
+  font-family: var(--f-mono);
+  font-size: 12.5px;
+  transition: all 160ms var(--ease);
+}
+.picker-pop .rdp-day_button:hover { background: rgba(139,92,246,0.14); }
+.picker-pop .rdp-today:not(.rdp-selected) .rdp-day_button {
+  color: var(--violet-ice);
+  font-weight: 700;
+  box-shadow: inset 0 0 0 1px rgba(196,181,253,0.35);
+}
+.picker-pop .rdp-selected .rdp-day_button {
+  background: var(--violet) !important;
+  color: white !important;
+  box-shadow: 0 0 0 1px rgba(196,181,253,0.40), 0 6px 14px -6px rgba(139,92,246,0.55);
+}
+.picker-pop .rdp-outside .rdp-day_button { opacity: 0.4; }
+.picker-pop .rdp-disabled .rdp-day_button { opacity: 0.25; cursor: not-allowed; }
+
+/* ---- TimeField popover (hour / minute / AM-PM) ---- */
+.picker-pop--time { padding: 10px 12px; }
+.picker-time {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 10px;
+  min-width: 220px;
+}
+.picker-time__col { display: flex; flex-direction: column; gap: 4px; }
+.picker-time__lbl {
+  font-family: var(--f-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--text-mute);
+  text-align: center;
+  text-transform: uppercase;
+}
+.picker-time__list {
+  max-height: 168px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(139,92,246,0.25) transparent;
+}
+.picker-time__list::-webkit-scrollbar { width: 5px; }
+.picker-time__list::-webkit-scrollbar-thumb { background: rgba(139,92,246,0.25); border-radius: 3px; }
+.picker-time__opt {
+  appearance: none;
+  width: 100%;
+  padding: 6px 10px;
+  background: transparent;
+  border: 0;
+  color: var(--ice);
+  font-family: var(--f-mono);
+  font-size: 13px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 140ms var(--ease);
+}
+.picker-time__opt:hover { background: rgba(139,92,246,0.12); }
+.picker-time__opt.is-active {
+  background: linear-gradient(180deg, rgba(139,92,246,0.32), rgba(139,92,246,0.12));
+  color: white;
+  box-shadow: inset 0 0 0 1px rgba(196,181,253,0.30);
+}
+.picker-time__ampm {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  justify-content: center;
+  padding-top: 22px; /* aligns with first option (skip the column label row) */
+}
+.picker-time__ampm button {
+  appearance: none;
+  padding: 7px 14px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--line);
+  color: var(--text-dim);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  font-family: var(--f-mono);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  transition: all 160ms var(--ease);
+}
+.picker-time__ampm button:hover { color: var(--ice); border-color: var(--line-strong); }
+.picker-time__ampm button.is-active {
+  background: linear-gradient(180deg, rgba(139,92,246,0.32), rgba(139,92,246,0.10));
+  color: white;
+  border-color: rgba(196,181,253,0.30);
+}
 .t-row__name {
   font-size: 14px;
   font-weight: 600;
@@ -745,6 +953,8 @@ input, button, textarea { font-family: inherit; }
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 4px 8px;
+  flex-wrap: wrap;
   padding: 7px 12px 6px;
   border-bottom: 1px solid var(--line);
   font-family: var(--f-mono);
@@ -752,6 +962,15 @@ input, button, textarea { font-family: inherit; }
   letter-spacing: 0.12em;
   color: var(--text-mute);
   text-transform: uppercase;
+}
+
+/* Optional scheduled date/time eyebrow — sits between status and round/match */
+.match__when {
+  color: var(--violet-ice);
+  white-space: nowrap;
+  flex-shrink: 1;
+  min-width: 0;
+  text-align: center;
 }
 .match__state {
   display: inline-flex;
