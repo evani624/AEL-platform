@@ -1,6 +1,14 @@
 import { useState, useRef } from 'react'
-import { Search, Pencil, Share2, Trash2 } from 'lucide-react'
-import { DndContext, PointerSensor, KeyboardSensor, useSensor, useSensors, closestCenter } from '@dnd-kit/core'
+import { createPortal } from 'react-dom'
+import { Search, Share2, Trash2, MoreVertical } from 'lucide-react'
+import {
+  DndContext,
+  PointerSensor,
+  KeyboardSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+} from '@dnd-kit/core'
 import {
   SortableContext,
   useSortable,
@@ -10,9 +18,13 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import useDragScroll from '../hooks/useDragScroll'
+import useClickOutside from '../hooks/useClickOutside'
+import usePopoverPlacement from '../hooks/usePopoverPlacement'
 import { categoryLabel, getTournamentStatus, getMatchCounts } from '../utils/bracketUtils'
 
-function TournamentRow({ t, mode, currentId, onSelect, onEdit, onDelete, onShare, dndDisabled }) {
+const MENU_INITIAL_STYLE = { position: 'fixed', top: 0, left: 0, visibility: 'hidden' }
+
+function TournamentRow({ t, mode, currentId, onSelect, onDelete, onShare, dndDisabled }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: t.id,
     disabled: dndDisabled,
@@ -21,9 +33,23 @@ function TournamentRow({ t, mode, currentId, onSelect, onEdit, onDelete, onShare
   const counts = getMatchCounts(t)
   const total = counts.completed + counts.upcoming
 
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuButtonRef = useRef(null)
+  const menuRef = useRef(null)
+  // Click-outside watches the trigger only; the portaled menu uses
+  // mousedown stopPropagation so clicks inside it don't read as outside.
+  useClickOutside(menuButtonRef, () => setMenuOpen(false))
+  usePopoverPlacement(menuOpen, menuButtonRef, menuRef)
+
   const style = {
     transform: CSS.Transform.toString(transform),
     transition,
+  }
+
+  const closeAnd = (fn) => (e) => {
+    e.stopPropagation()
+    setMenuOpen(false)
+    fn?.()
   }
 
   return (
@@ -35,7 +61,7 @@ function TournamentRow({ t, mode, currentId, onSelect, onEdit, onDelete, onShare
       className={`t-row ${t.id === currentId ? 'is-active' : ''} ${isDragging ? 'is-dragging' : ''}`}
       onClick={() => onSelect?.(t.id)}
     >
-      <div>
+      <div className="t-row__body">
         <div className="t-row__name">
           <span>{t.name}</span>
           <span
@@ -58,18 +84,49 @@ function TournamentRow({ t, mode, currentId, onSelect, onEdit, onDelete, onShare
           </span>
         </div>
       </div>
+
       {mode === 'admin' && (
-        <div className="t-row__actions" onClick={(e) => e.stopPropagation()}>
-          <button className="icon-btn" title="Edit" onClick={() => onEdit?.(t)}>
-            <Pencil size={13} />
+        <>
+          <button
+            ref={menuButtonRef}
+            type="button"
+            className="t-row__menu"
+            aria-label="More actions"
+            aria-expanded={menuOpen}
+            title="More actions"
+            onClick={(e) => {
+              e.stopPropagation()
+              setMenuOpen((o) => !o)
+            }}
+            // Keep the row's drag-handle pointer down from firing on this button.
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <MoreVertical size={16} />
           </button>
-          <button className="icon-btn" title="Share link" onClick={() => onShare?.(t)}>
-            <Share2 size={13} />
-          </button>
-          <button className="icon-btn icon-btn--danger" title="Delete" onClick={() => onDelete?.(t.id)}>
-            <Trash2 size={13} />
-          </button>
-        </div>
+          {menuOpen &&
+            createPortal(
+              <div
+                ref={menuRef}
+                className="picker-pop row-menu"
+                style={MENU_INITIAL_STYLE}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                <button type="button" className="row-menu__item" onClick={closeAnd(() => onShare?.(t))}>
+                  <Share2 size={13} />
+                  Share link
+                </button>
+                <button
+                  type="button"
+                  className="row-menu__item row-menu__item--danger"
+                  onClick={closeAnd(() => onDelete?.(t.id))}
+                >
+                  <Trash2 size={13} />
+                  Delete
+                </button>
+              </div>,
+              document.body
+            )}
+        </>
       )}
     </div>
   )
@@ -81,7 +138,6 @@ export default function Sidebar({
   currentId,
   collapsed,
   onSelect,
-  onEdit,
   onDelete,
   onShare,
   onReorder,
@@ -93,9 +149,6 @@ export default function Sidebar({
   // Ignore drag-scroll on the sortable rows so @dnd-kit's pointer events are clean.
   useDragScroll(listRef, { axis: 'xy', ignoreSelector: '.icon-btn, button, input, .t-row' })
 
-  // Drag is admin-only and only when no search is active (reordering a filtered
-  // subset would silently re-rank the hidden rows). 8px threshold keeps clicks
-  // and the existing edit/share/delete buttons working as normal.
   const dndEnabled = mode === 'admin' && !q
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -119,7 +172,6 @@ export default function Sidebar({
       mode={mode}
       currentId={currentId}
       onSelect={onSelect}
-      onEdit={onEdit}
       onDelete={onDelete}
       onShare={onShare}
       dndDisabled={!dndEnabled}

@@ -22,10 +22,16 @@ const accessToken = hashParams.get('access_token')
 const code = queryParams.get('code')
 export const authLinkError = pick('error_description') || pick('error') || null
 
+// Diagnostic snapshot — used to confirm the link format from the browser
+// console. Token material (the full URL, hash, and query string) is REDACTED
+// because invite/recovery landings carry bearer tokens (access_token,
+// refresh_token, token_hash) that must never be written to the console. The
+// boolean/strings below still tell us "an invite link landed, type=invite,
+// had a token_hash" — useful for triage without exposing the secret.
 export const authLandingDebug = {
-  href: typeof window !== 'undefined' ? window.location.href : '',
-  search: rawSearch || '(none)',
-  hash: rawHash || '(none)',
+  href: '(redacted)',
+  search: '(redacted)',
+  hash: '(redacted)',
   type: authLinkType,
   hasTokenHash: Boolean(tokenHash),
   hasAccessToken: Boolean(accessToken),

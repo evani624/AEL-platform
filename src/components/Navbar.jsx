@@ -1,4 +1,4 @@
-import { Plus, Pencil, LogOut, EyeOff } from 'lucide-react'
+import { Plus, Pencil, LogOut } from 'lucide-react'
 import Logo from './Logo'
 import { categoryLabel } from '../utils/bracketUtils'
 
@@ -62,14 +62,6 @@ export default function Navbar({
             <LogOut size={16} />
           </button>
         </>
-      )}
-      {mode === 'public' && cur && (
-        <span className="counter" title="Read-only public view">
-          <EyeOff size={12} />
-          <span className="counter__lbl" style={{ letterSpacing: '0.14em' }}>
-            PUBLIC LINK
-          </span>
-        </span>
       )}
     </nav>
   )

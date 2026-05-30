@@ -25,8 +25,18 @@ function ScoreSide({ team, score, setScore, bump, isWinner }) {
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
         <span className="team-chip" style={{ '--c': colorHex(team?.color) }} />
-        <span style={{ fontSize: 13, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {team?.name}
+        <span
+          style={{
+            fontSize: 13,
+            fontWeight: 500,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            color: team ? undefined : 'var(--text-mute)',
+            fontStyle: team ? undefined : 'italic',
+          }}
+        >
+          {team?.name || 'TBD'}
         </span>
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -74,18 +84,8 @@ export default function MatchResultModal({ isOpen, onClose, match, onConfirm, ga
 
   const a = match.team1
   const b = match.team2
-
-  if (!a || !b) {
-    return (
-      <Modal isOpen={isOpen} onClose={onClose} accent="Heads up" title="Both team slots need teams first">
-        <p style={{ color: 'var(--text-dim)', fontSize: 13, lineHeight: 1.55, margin: 0 }}>
-          Fill in both slots in this match before recording a result. Click an empty slot in the bracket to add a team.
-        </p>
-      </Modal>
-    )
-  }
-
   const isFinal = status === 'final'
+  const teamsMissing = !a || !b
 
   const bump = (which, delta) => {
     if (which === 'A') setScoreA(String(Math.max(0, (parseInt(scoreA, 10) || 0) + delta)))
@@ -95,11 +95,18 @@ export default function MatchResultModal({ isOpen, onClose, match, onConfirm, ga
 
   const sa = scoreA === '' ? null : parseInt(scoreA, 10)
   const sb = scoreB === '' ? null : parseInt(scoreB, 10)
-  const winner = isFinal && sa != null && sb != null && sa !== sb ? (sa > sb ? 'A' : 'B') : null
+  // Winner is only meaningful when both teams are present.
+  const winner =
+    isFinal && !teamsMissing && sa != null && sb != null && sa !== sb ? (sa > sb ? 'A' : 'B') : null
 
   const submit = () => {
     const schedule = { matchDate: matchDate || null, matchTime: matchTime || null }
     if (isFinal) {
+      // Safety: can't advance a winner from an empty slot.
+      if (teamsMissing) {
+        setErr('Add teams first to record a final result')
+        return
+      }
       if (sa == null || sb == null || isNaN(sa) || isNaN(sb)) {
         setErr('Both scores required to mark as Final')
         return
@@ -111,7 +118,7 @@ export default function MatchResultModal({ isOpen, onClose, match, onConfirm, ga
       const winnerId = sa > sb ? a.id : b.id
       onConfirm?.({ status: 'final', winnerId, team1Score: sa, team2Score: sb, ...schedule })
     } else {
-      // Upcoming / In progress — no winner required.
+      // Upcoming / In progress — no winner required (works for empty matches too).
       onConfirm?.({ status, winnerId: null, team1Score: sa, team2Score: sb, ...schedule })
     }
     onClose?.()
@@ -129,7 +136,11 @@ export default function MatchResultModal({ isOpen, onClose, match, onConfirm, ga
           <button className="btn btn--ghost btn--sm" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn btn--primary btn--sm" onClick={submit}>
+          <button
+            className="btn btn--primary btn--sm"
+            onClick={submit}
+            disabled={isFinal && teamsMissing}
+          >
             <Check size={13} />
             {isFinal ? 'Save & advance winner' : 'Save state'}
           </button>
@@ -211,6 +222,26 @@ export default function MatchResultModal({ isOpen, onClose, match, onConfirm, ga
             <b style={{ color: 'var(--violet-ice)' }}>{(winner === 'A' ? a : b).name}</b>
             <span style={{ color: 'var(--text-dim)' }}> advances to the next round</span>
           </span>
+        </div>
+      )}
+
+      {isFinal && teamsMissing && (
+        <div
+          style={{
+            marginTop: 4,
+            padding: '10px 13px',
+            background: 'rgba(255,255,255,0.03)',
+            border: '1px solid var(--line)',
+            borderRadius: 'var(--r-md)',
+            color: 'var(--text-dim)',
+            fontSize: 12.5,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <AlertCircle size={12} style={{ color: 'var(--violet-ice)', flexShrink: 0 }} />
+          Add teams first to record a final result. Date, time, and state can still be saved.
         </div>
       )}
     </Modal>

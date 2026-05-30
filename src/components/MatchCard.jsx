@@ -31,7 +31,9 @@ function TeamRow({ team, score, seed, isWinner, isLoser, isTop, empty, readonly,
   if (isWinner) cls += ' match__row--winner'
   if (isLoser) cls += ' match__row--loser'
   if (isTop) cls += ' match__row--top'
-  if (empty) cls += ' match__row--empty'
+  // Public view shows a passive "TBD" placeholder; admin keeps the actionable
+  // "+ Add team" affordance (cursor, hover, click).
+  if (empty) cls += readonly ? ' match__row--tbd' : ' match__row--empty'
 
   return (
     <div className={cls} onClick={onClick}>
@@ -58,7 +60,13 @@ function TeamRow({ team, score, seed, isWinner, isLoser, isTop, empty, readonly,
         <span className="match__team">
           <span className="team-chip" />
           <span className="match__name">
-            <Plus size={11} /> Add team
+            {readonly ? (
+              'TBD'
+            ) : (
+              <>
+                <Plus size={11} /> Add team
+              </>
+            )}
           </span>
         </span>
       )}
@@ -88,7 +96,9 @@ export default function MatchCard({ match, readonly, isFinal, isChampionPath, on
   }
   const clickHead = () => {
     if (readonly) return
-    if (match.team1 && match.team2) onSlotClick?.(match, null)
+    // Header is clickable even for empty matches so admins can schedule
+    // date/time/state ahead of teams being known.
+    onSlotClick?.(match, null)
   }
 
   const swap = isFinal && state === 'done' && winnerSide === 'B'
@@ -132,7 +142,7 @@ export default function MatchCard({ match, readonly, isFinal, isChampionPath, on
 
   return (
     <div className={cls}>
-      <div className="match__head" onClick={clickHead}>
+      <div className={`match__head${readonly ? '' : ' is-clickable'}`} onClick={clickHead}>
         <span className="match__state">
           <span className="dot" />
           {stateLabel}
