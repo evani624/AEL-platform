@@ -1,16 +1,18 @@
 import { CATEGORIES } from '../constants/games'
+import { getDoubleElimChampionInfo } from './doubleElim'
 
 /**
  * Generate bracket structure for a given team size (8, 16, 32, or 64).
  * Returns rounds array: each round has { name, matches: [{ id, team1, team2, winnerId, nextMatchId }] }
  */
 export function createBracketStructure(teamSize) {
-  const validSizes = [8, 16, 32, 64]
+  const validSizes = [4, 8, 16, 32, 64]
   if (!validSizes.includes(teamSize)) {
     throw new Error(`Team size must be one of ${validSizes.join(', ')}`)
   }
 
   const roundNames = {
+    4: ['Semi Finals', 'Final'],
     8: ['Round of 8', 'Semi Finals', 'Final'],
     16: ['Round of 16', 'Quarter Finals', 'Semi Finals', 'Final'],
     32: ['Round of 32', 'Round of 16', 'Quarter Finals', 'Semi Finals', 'Final'],
@@ -64,9 +66,33 @@ export function generateTournament(id, name, teamSize = 16, game = '') {
 }
 
 /**
- * Find a match by ID in the tournament
+ * Find a match by ID in the tournament.
+ *
+ * SINGLE-ELIM: returns { round, match } — unchanged shape and walk order.
+ * DOUBLE-ELIM: walks winnerRounds → loserRounds → grandFinal → grandFinalReset
+ * and returns { round, match, section } where section is the bracket_side.
+ * The extra `section` field is additive; single-elim callers can ignore it.
  */
 export function findMatch(tournament, matchId) {
+  if (tournament?.tournamentType === 'double') {
+    for (const round of tournament.winnerRounds ?? []) {
+      const match = round.matches.find((m) => m.id === matchId)
+      if (match) return { round, match, section: 'winner' }
+    }
+    for (const round of tournament.loserRounds ?? []) {
+      const match = round.matches.find((m) => m.id === matchId)
+      if (match) return { round, match, section: 'loser' }
+    }
+    if (tournament.grandFinal) {
+      const match = tournament.grandFinal.matches.find((m) => m.id === matchId)
+      if (match) return { round: tournament.grandFinal, match, section: 'grand_final' }
+    }
+    if (tournament.grandFinalReset) {
+      const match = tournament.grandFinalReset.matches.find((m) => m.id === matchId)
+      if (match) return { round: tournament.grandFinalReset, match, section: 'grand_final_reset' }
+    }
+    return null
+  }
   for (const round of tournament.rounds) {
     const match = round.matches.find((m) => m.id === matchId)
     if (match) return { round, match }
@@ -75,9 +101,33 @@ export function findMatch(tournament, matchId) {
 }
 
 /**
- * Count completed (has winner) and upcoming (no winner) matches
+ * Count completed (has winner) and upcoming (no winner) matches.
+ *
+ * Double-elim: iterates W + L + GF; Reset is counted only when it's "live"
+ * (gf is final and L-champ won) — otherwise the Reset row is a placeholder
+ * that shouldn't inflate the denominator. Same stale-Reset rule as
+ * getDoubleElimChampionInfo and GrandFinalPanel.
  */
 export function getMatchCounts(tournament) {
+  if (tournament?.tournamentType === 'double') {
+    let completed = 0
+    let upcoming = 0
+    const iter = (round) => {
+      for (const m of round?.matches ?? []) {
+        if (m?.winnerId) completed++
+        else upcoming++
+      }
+    }
+    for (const r of tournament.winnerRounds ?? []) iter(r)
+    for (const r of tournament.loserRounds ?? []) iter(r)
+    iter(tournament.grandFinal)
+    const gf = tournament.grandFinal?.matches?.[0]
+    const gfWinnerSide =
+      gf?.winnerId === gf?.team1?.id ? 'A' : gf?.winnerId === gf?.team2?.id ? 'B' : null
+    const resetIsLive = gf?.status === 'final' && gfWinnerSide === 'B'
+    if (resetIsLive) iter(tournament.grandFinalReset)
+    return { completed, upcoming }
+  }
   if (!tournament?.rounds?.length) return { completed: 0, upcoming: 0 }
   let completed = 0
   let upcoming = 0
@@ -125,6 +175,34 @@ export function getMatchState(match) {
 
 /** Tournament-level status pill: 'soon' | 'live' | 'done' (follows match states). */
 export function getTournamentStatus(tournament) {
+  if (tournament?.tournamentType === 'double') {
+    let total = 0
+    let done = 0
+    let started = 0
+    const iter = (round) => {
+      for (const m of round?.matches ?? []) {
+        total++
+        const st = getMatchState(m)
+        if (st === 'done') {
+          done++
+          started++
+        } else if (st === 'live') {
+          started++
+        }
+      }
+    }
+    for (const r of tournament.winnerRounds ?? []) iter(r)
+    for (const r of tournament.loserRounds ?? []) iter(r)
+    iter(tournament.grandFinal)
+    const gf = tournament.grandFinal?.matches?.[0]
+    const gfWinnerSide =
+      gf?.winnerId === gf?.team1?.id ? 'A' : gf?.winnerId === gf?.team2?.id ? 'B' : null
+    const resetIsLive = gf?.status === 'final' && gfWinnerSide === 'B'
+    if (resetIsLive) iter(tournament.grandFinalReset)
+    if (total === 0 || started === 0) return 'soon'
+    if (done === total) return 'done'
+    return 'live'
+  }
   const rounds = tournament?.rounds ?? []
   let total = 0
   let done = 0
@@ -156,10 +234,16 @@ export function getWinnerSide(match) {
 
 /**
  * If the final is decided, return { name, pathIds } where pathIds is the set of
- * match ids the champion won (matched by team name, which carries across rounds
- * even though a team gets a fresh id each round). Otherwise null.
+ * match ids the champion won. Otherwise null.
+ *
+ * Double-elim delegates to getDoubleElimChampionInfo in doubleElim.js, which
+ * implements the stale-Reset rule (W winning GF outright voids any populated
+ * Reset row from a prior, reverted L-win).
  */
 export function getChampionInfo(tournament) {
+  if (tournament?.tournamentType === 'double') {
+    return getDoubleElimChampionInfo(tournament)
+  }
   const rounds = tournament?.rounds
   if (!rounds?.length) return null
   const finalMatch = rounds[rounds.length - 1]?.matches?.[0]

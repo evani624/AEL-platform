@@ -2247,3 +2247,84 @@ html.is-dragging-global .screen-ambient .particle {
   .modal { max-width: 100%; }
   .login__card { padding: 26px 20px; }
 }
+
+/* ============================================================
+ * Double-elimination side-anchored layout.
+ * Left column: W bracket stacked over L bracket (sticky labels).
+ * Right column: Grand Final panel, vertically centered.
+ * Cross-section SVG draws W-Final → GF, L-Final → GF, GF → Reset.
+ * ============================================================ */
+
+.de-bracket-grid {
+  display: flex;
+  align-items: stretch;
+  gap: 64px;
+  position: relative;
+  /* MUST size to content, not to .bracket-wrap's visible width — otherwise
+   * the absolute-inset cross SVG ends up too narrow (clipping the
+   * W-Final→GF / L-Final→GF paths whenever the grid is wider than the
+   * viewport, i.e. the common case for N≥8). Same pattern .bracket itself
+   * uses globally. */
+  width: max-content;
+  min-width: 100%;
+}
+
+.de-bracket-grid__left,
+.de-bracket-grid__right {
+  position: relative;
+  z-index: 1; /* paint above the cross SVG (z-index: 0 below) */
+}
+
+.de-bracket-grid__left {
+  flex: 0 0 auto;
+  min-width: 0;
+}
+
+.de-bracket-grid__right {
+  flex: 0 0 auto;
+  align-self: center; /* vertically center relative to the left column */
+  display: flex;
+  flex-direction: column;
+}
+
+/* Cross-section connector overlay — sits behind both columns. */
+.de-cross-svg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* Plain section heading — round headers (WR1/LR2, Winner's Final /
+ * Loser's Final) already cover orientation, so the label doesn't need to
+ * chase the viewport. Static positioning, no backdrop. */
+.de-section-label {
+  font-family: monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  width: max-content;
+  padding: 6px 12px;
+  margin: 14px 0 8px;
+}
+
+.de-section-divider {
+  border-top: 1px solid var(--line-strong);
+  margin: 8px 0 4px;
+}
+
+/* .bracket has width: max-content + min-width: 100% globally — fine for
+ * single-elim where it's the sole child of .bracket-wrap, but it would
+ * stretch the new grid columns awkwardly. Scope-down inside the grid. */
+.de-bracket-grid__left .bracket {
+  min-width: 0;
+}
+.de-bracket-grid__right .bracket,
+.de-grand-final-panel {
+  min-width: 0;
+  width: auto;
+}

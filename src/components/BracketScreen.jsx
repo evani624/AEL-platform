@@ -3,6 +3,7 @@ import { ChevronRight, ChevronLeft, Plus } from 'lucide-react'
 import Navbar from './Navbar'
 import Sidebar from './Sidebar'
 import Bracket from './Bracket'
+import DoubleEliminationBracket from './DoubleEliminationBracket'
 import BracketAmbient from './BracketAmbient'
 import BracketSkeleton from './BracketSkeleton'
 import Logo from './Logo'
@@ -23,7 +24,7 @@ function BracketHeader({ tournament }) {
           <span className="dot" />
           <span className={`cat-chip cat-chip--${tournament.category}`}>{categoryLabel(tournament.category)}</span>
           <span className="dot" />
-          <span>{tournament.teamSize}-team single elim</span>
+          <span>{tournament.teamSize}-team {tournament.tournamentType === 'double' ? 'double' : 'single'} elim</span>
           <span className="dot" />
           <span>
             {counts.completed}/{total} matches recorded
@@ -154,13 +155,22 @@ export default function BracketScreen({
           ) : current ? (
             <>
               <BracketHeader tournament={current} />
-              <Bracket
-                tournament={current}
-                isReadOnly={mode === 'public'}
-                onSlotClick={onSlotClick}
-                onDeleteTeam={onDeleteTeam}
-                lastRoundIndex={current?.rounds?.length ? current.rounds.length - 1 : -1}
-              />
+              {current.tournamentType === 'double' ? (
+                <DoubleEliminationBracket
+                  tournament={current}
+                  isReadOnly={mode === 'public'}
+                  onSlotClick={onSlotClick}
+                  onDeleteTeam={onDeleteTeam}
+                />
+              ) : (
+                <Bracket
+                  tournament={current}
+                  isReadOnly={mode === 'public'}
+                  onSlotClick={onSlotClick}
+                  onDeleteTeam={onDeleteTeam}
+                  lastRoundIndex={current?.rounds?.length ? current.rounds.length - 1 : -1}
+                />
+              )}
             </>
           ) : (
             <EmptyState mode={mode} onAdd={onAddTournament} />

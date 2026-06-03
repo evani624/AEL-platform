@@ -11,12 +11,14 @@ import { supabase } from '../lib/supabaseClient'
 import { findMatch } from '../utils/bracketUtils'
 import {
   fetchTournaments,
+  fetchTournamentById,
   createTournament as createTournamentSupabase,
   updateTournament as updateTournamentSupabase,
   deleteTournament as deleteTournamentSupabase,
   upsertMatch,
   updateNextMatchWithWinner,
   updateTournamentsOrder,
+  advanceWinnerAndLoser,
 } from '../lib/supabaseService'
 
 export default function AdminView() {
@@ -80,7 +82,7 @@ export default function AdminView() {
   }, [])
 
   const handleSubmitTournament = useCallback(
-    async ({ name, game, category, teamSize }) => {
+    async ({ name, game, category, teamSize, tournamentType }) => {
       try {
         if (tournamentForm.mode === 'edit' && tournamentForm.initial) {
           const id = tournamentForm.initial.id
@@ -90,7 +92,7 @@ export default function AdminView() {
           )
           pushToast({ title: 'Tournament updated', sub: name, icon: 'check' })
         } else {
-          const newTournament = await createTournamentSupabase({ name, game, category, teamSize })
+          const newTournament = await createTournamentSupabase({ name, game, category, teamSize, tournamentType })
           setTournaments((prev) => [newTournament, ...prev])
           setSelectedTournamentId(newTournament.id)
           pushToast({ title: 'Tournament created', sub: `${game} · ${teamSize} teams`, icon: 'sparkles' })
@@ -151,6 +153,10 @@ export default function AdminView() {
       const { match, slot } = addTeamModal
       if (!match || !slot || !selectedTournamentId) return
 
+      const tournament = tournaments.find((t) => t.id === selectedTournamentId)
+      if (!tournament) return
+      const isDouble = tournament.tournamentType === 'double'
+
       const team = {
         id: `${match.id}-${slot}`,
         name: teamData.name,
@@ -161,25 +167,40 @@ export default function AdminView() {
         await upsertMatch(selectedTournamentId, match.id, {
           [slot]: { name: team.name, color: team.color },
         })
-        setTournaments((prev) =>
-          prev.map((t) => {
-            if (t.id !== selectedTournamentId) return t
-            return {
-              ...t,
-              rounds: t.rounds.map((round) => ({
-                ...round,
-                matches: round.matches.map((m) => (m.id === match.id ? { ...m, [slot]: team } : m)),
-              })),
-            }
-          })
-        )
+
+        if (isDouble) {
+          // Double-elim: refetch — simpler than walking 4 bracket sections.
+          const refreshed = await fetchTournamentById(selectedTournamentId)
+          if (refreshed) {
+            setTournaments((prev) =>
+              prev.map((t) => (t.id === selectedTournamentId ? refreshed : t))
+            )
+          }
+        } else {
+          // SINGLE-ELIM OPTIMISTIC UPDATE — BYTE-IDENTICAL TO LEGACY PATH.
+          setTournaments((prev) =>
+            prev.map((t) => {
+              if (t.id !== selectedTournamentId) return t
+              return {
+                ...t,
+                rounds: t.rounds.map((round) => ({
+                  ...round,
+                  matches: round.matches.map((m) =>
+                    m.id === match.id ? { ...m, [slot]: team } : m
+                  ),
+                })),
+              }
+            })
+          )
+        }
+
         setAddTeamModal({ open: false, match: null, slot: null })
         pushToast({ title: 'Team added', sub: team.name, icon: 'check', flavor: 'cyan' })
       } catch (err) {
         setError(err.message)
       }
     },
-    [addTeamModal, selectedTournamentId, pushToast]
+    [addTeamModal, selectedTournamentId, tournaments, pushToast]
   )
 
   const handleDeleteTeam = useCallback(
@@ -189,10 +210,10 @@ export default function AdminView() {
       const team = slot === 'team1' ? match.team1 : match.team2
       if (!team) return
 
-      const found = findMatch(
-        tournaments.find((t) => t.id === selectedTournamentId),
-        match.id
-      )
+      const tournament = tournaments.find((t) => t.id === selectedTournamentId)
+      if (!tournament) return
+      const isDouble = tournament.tournamentType === 'double'
+      const found = findMatch(tournament, match.id)
 
       try {
         const updates = { [slot]: null }
@@ -202,10 +223,24 @@ export default function AdminView() {
         }
         await upsertMatch(selectedTournamentId, match.id, updates)
 
+        if (isDouble) {
+          // KNOWN LIMITATION (chunk a): no cascading clear across W→L drop
+          // targets for double-elim. Refetch shows the persisted state; admin
+          // can manually clean downstream slots if needed. Revisit in a
+          // later chunk.
+          const refreshed = await fetchTournamentById(selectedTournamentId)
+          if (refreshed) {
+            setTournaments((prev) =>
+              prev.map((t) => (t.id === selectedTournamentId ? refreshed : t))
+            )
+          }
+          return
+        }
+
+        // SINGLE-ELIM PATH — UNCHANGED FROM LEGACY.
         if (found?.match.nextMatchId) {
-          const nextMatch = tournaments
-            .find((t) => t.id === selectedTournamentId)
-            ?.rounds.flatMap((r) => r.matches)
+          const nextMatch = tournament.rounds
+            .flatMap((r) => r.matches)
             .find((m) => m.id === found.match.nextMatchId)
           if (nextMatch?.team1?.id === team.id || nextMatch?.team2?.id === team.id) {
             const nextSlot = nextMatch.team1?.id === team.id ? 'team1' : 'team2'
@@ -272,16 +307,12 @@ export default function AdminView() {
       const { match } = matchResultModal
       if (!match || !selectedTournamentId) return
 
-      const found = findMatch(
-        tournaments.find((t) => t.id === selectedTournamentId),
-        match.id
-      )
+      const tournament = tournaments.find((t) => t.id === selectedTournamentId)
+      if (!tournament) return
+      const found = findMatch(tournament, match.id)
       if (!found) return
 
-      const roundIndex =
-        tournaments.find((t) => t.id === selectedTournamentId)?.rounds?.indexOf(found.round) ?? -1
-      const matchIndex = found.round.matches.indexOf(found.match)
-      const isFinalMatch = !found.match.nextMatchId
+      const isDouble = tournament.tournamentType === 'double'
 
       const isFinalState = status === 'final'
       const winner =
@@ -289,6 +320,17 @@ export default function AdminView() {
       const winnerIdToSave = winner ? winner.id : null
       const s1 = team1Score ?? null
       const s2 = team2Score ?? null
+
+      // Single-elim only: roundIndex / matchIndex / isFinalMatch — used by
+      // the unchanged updateNextMatchWithWinner call + optimistic patch below.
+      let roundIndex = -1
+      let matchIndex = -1
+      let isFinalMatch = true
+      if (!isDouble) {
+        roundIndex = tournament?.rounds?.indexOf(found.round) ?? -1
+        matchIndex = found.round.matches.indexOf(found.match)
+        isFinalMatch = !found.match.nextMatchId
+      }
 
       try {
         await upsertMatch(selectedTournamentId, match.id, {
@@ -299,48 +341,66 @@ export default function AdminView() {
           matchDate: matchDate ?? null,
           matchTime: matchTime ?? null,
         })
-        // Only a Final result advances a winner to the next round.
-        if (isFinalState && winner && !isFinalMatch) {
-          await updateNextMatchWithWinner(selectedTournamentId, roundIndex, matchIndex, winner)
+
+        if (isFinalState && winner) {
+          if (isDouble) {
+            const loser = winner.id === match.team1?.id ? match.team2 : match.team1
+            await advanceWinnerAndLoser(tournament, match, winner, loser)
+          } else if (!isFinalMatch) {
+            await updateNextMatchWithWinner(selectedTournamentId, roundIndex, matchIndex, winner)
+          }
         }
 
-        const winnerWithPath = winner ? { ...winner, isWinningPath: true } : null
-        const nextSlot = matchIndex % 2 === 0 ? 'team1' : 'team2'
+        if (isDouble) {
+          // Refetch — covers writes to winnerTarget + loserTarget + (GF→Reset
+          // populate) without inventing a multi-section optimistic patcher.
+          const refreshed = await fetchTournamentById(selectedTournamentId)
+          if (refreshed) {
+            setTournaments((prev) =>
+              prev.map((t) => (t.id === selectedTournamentId ? refreshed : t))
+            )
+          }
+        } else {
+          // SINGLE-ELIM OPTIMISTIC UPDATE — BYTE-IDENTICAL TO LEGACY PATH.
+          const winnerWithPath = winner ? { ...winner, isWinningPath: true } : null
+          const nextSlot = matchIndex % 2 === 0 ? 'team1' : 'team2'
 
-        setTournaments((prev) =>
-          prev.map((t) => {
-            if (t.id !== selectedTournamentId) return t
-            return {
-              ...t,
-              rounds: t.rounds.map((round) => ({
-                ...round,
-                matches: round.matches.map((m) => {
-                  if (m.id === match.id) {
-                    return {
-                      ...m,
-                      status,
-                      winnerId: winnerIdToSave,
-                      team1Score: s1,
-                      team2Score: s2,
-                      matchDate: matchDate ?? null,
-                      matchTime: matchTime ?? null,
+          setTournaments((prev) =>
+            prev.map((t) => {
+              if (t.id !== selectedTournamentId) return t
+              return {
+                ...t,
+                rounds: t.rounds.map((round) => ({
+                  ...round,
+                  matches: round.matches.map((m) => {
+                    if (m.id === match.id) {
+                      return {
+                        ...m,
+                        status,
+                        winnerId: winnerIdToSave,
+                        team1Score: s1,
+                        team2Score: s2,
+                        matchDate: matchDate ?? null,
+                        matchTime: matchTime ?? null,
+                      }
                     }
-                  }
-                  if (
-                    isFinalState &&
-                    winner &&
-                    !isFinalMatch &&
-                    found.match.nextMatchId &&
-                    m.id === found.match.nextMatchId
-                  ) {
-                    return { ...m, [nextSlot]: winnerWithPath }
-                  }
-                  return m
-                }),
-              })),
-            }
-          })
-        )
+                    if (
+                      isFinalState &&
+                      winner &&
+                      !isFinalMatch &&
+                      found.match.nextMatchId &&
+                      m.id === found.match.nextMatchId
+                    ) {
+                      return { ...m, [nextSlot]: winnerWithPath }
+                    }
+                    return m
+                  }),
+                })),
+              }
+            })
+          )
+        }
+
         setMatchResultModal({ open: false, match: null })
         if (isFinalState) {
           pushToast({ title: 'Result saved', sub: 'Winner advanced to next round', icon: 'crown' })

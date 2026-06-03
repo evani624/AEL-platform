@@ -1,156 +1,35 @@
-import { useRef, useState, useEffect } from 'react'
-import MatchCard from './MatchCard'
-import ChampionCard from './ChampionCard'
-import { getMatchState, getWinnerSide, getChampionInfo } from '../utils/bracketUtils'
+import { useMemo } from 'react'
+import BracketSection from './BracketSection'
+import { getChampionInfo } from '../utils/bracketUtils'
 
 /**
- * Single-elimination bracket: flex round columns with an SVG connector overlay
- * measured from the live DOM. Winner glow, in-progress pulse and the champion
- * crown are all driven by derived state — stored data is unchanged.
+ * Single-elimination bracket. The actual rendering (flex columns + SVG
+ * connectors + ChampionCard) lives in <BracketSection>, shared with
+ * <DoubleEliminationBracket>'s two section instances.
  */
 export default function Bracket({ tournament, isReadOnly, onSlotClick, onDeleteTeam, lastRoundIndex }) {
-  const wrapRef = useRef(null)
-  const [conns, setConns] = useState([])
-  const [size, setSize] = useState({ w: 0, h: 0 })
-
-  useEffect(() => {
-    function measure() {
-      if (!wrapRef.current) return
-      const wrapBox = wrapRef.current.getBoundingClientRect()
-      setSize({ w: wrapBox.width, h: wrapBox.height })
-
-      const champPathIds = getChampionInfo(tournament)?.pathIds ?? new Set()
-      const cards = wrapRef.current.querySelectorAll('[data-match-id]')
-      const map = {}
-      cards.forEach((c) => {
-        const r = c.getBoundingClientRect()
-        map[c.dataset.matchId] = {
-          left: r.left - wrapBox.left,
-          right: r.right - wrapBox.left,
-          mid: r.top - wrapBox.top + r.height / 2,
-        }
-      })
-
-      const lines = []
-      const rounds = tournament?.rounds ?? []
-      rounds.forEach((round, ri) => {
-        if (ri === rounds.length - 1) return
-        const next = rounds[ri + 1]
-        round.matches.forEach((m, mi) => {
-          const target = next.matches[Math.floor(mi / 2)]
-          if (!target) return
-          const a = map[m.id]
-          const b = map[target.id]
-          if (!a || !b) return
-          const gap = (b.left - a.right) / 2
-          const x1 = a.right
-          const x2 = a.right + gap
-          const onChampPath = champPathIds.has(m.id) && champPathIds.has(target.id)
-          const active = getMatchState(m) === 'done'
-          lines.push({
-            d: `M${x1} ${a.mid} H${x2} V${b.mid} H${b.left}`,
-            active,
-            onChampPath,
-            key: `${m.id}->${target.id}`,
-          })
-        })
-      })
-      setConns(lines)
-    }
-
-    // Coalesce observer/resize bursts into at most one measure per frame —
-    // each measure does O(matches) getBoundingClientRect reads (forced reflow).
-    let rafId = 0
-    const schedule = () => {
-      if (rafId) return
-      rafId = requestAnimationFrame(() => {
-        rafId = 0
-        measure()
-      })
-    }
-
-    measure()
-    const ro = new ResizeObserver(schedule)
-    if (wrapRef.current) ro.observe(wrapRef.current)
-    window.addEventListener('resize', schedule)
-    return () => {
-      if (rafId) cancelAnimationFrame(rafId)
-      ro.disconnect()
-      window.removeEventListener('resize', schedule)
-    }
-  }, [tournament])
+  // Memoize champPathIds so its identity is stable across renders that
+  // don't change `tournament`. BracketSection's measure effect lists it as
+  // a dep — a fresh Set every render would loop render → measure → render.
+  const champPathIds = useMemo(
+    () => getChampionInfo(tournament)?.pathIds ?? new Set(),
+    [tournament]
+  )
 
   if (!tournament?.rounds?.length) {
     return <div style={{ color: 'var(--text-mute)', padding: 40 }}>No bracket to display.</div>
   }
 
-  const rounds = tournament.rounds
-  const lastIdx = lastRoundIndex >= 0 ? lastRoundIndex : rounds.length - 1
-  const champPathIds = getChampionInfo(tournament)?.pathIds ?? new Set()
-
   return (
-    <div ref={wrapRef} className="bracket" style={{ position: 'relative' }}>
-      <svg
-        className="bracket-svg"
-        xmlns="http://www.w3.org/2000/svg"
-        width={size.w || '100%'}
-        height={size.h || '100%'}
-        viewBox={size.w && size.h ? `0 0 ${size.w} ${size.h}` : undefined}
-      >
-        <defs>
-          <linearGradient id="conn-active" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="rgba(139,92,246,0.7)" />
-            <stop offset="100%" stopColor="rgba(196,181,253,0.5)" />
-          </linearGradient>
-        </defs>
-        {conns.map((c) => (
-          <path
-            key={c.key}
-            d={c.d}
-            fill="none"
-            stroke={c.onChampPath ? 'url(#conn-active)' : c.active ? 'rgba(139,92,246,0.55)' : 'rgba(196,181,253,0.18)'}
-            strokeWidth={c.onChampPath ? 2 : 1.2}
-            strokeLinecap="round"
-            style={c.onChampPath ? { filter: 'drop-shadow(0 0 6px rgba(139,92,246,0.6))' } : undefined}
-          />
-        ))}
-      </svg>
-
-      {rounds.map((round, ri) => {
-        const isLast = ri === lastIdx
-        return (
-          <div className="round-col" key={ri}>
-            <div className="round-col__head">
-              <b>R{ri + 1}</b> · {round.name}
-            </div>
-            <div className="round-col__matches">
-              {round.matches.map((m) => {
-                const state = getMatchState(m)
-                const winnerSide = getWinnerSide(m)
-                const isChamp = isLast && state === 'done' && Boolean(winnerSide)
-                const champTeam = winnerSide === 'A' ? m.team1 : m.team2
-                return (
-                  <div key={m.id} style={{ position: 'relative', zIndex: 1 }}>
-                    {isChamp && (
-                      <ChampionCard team={champTeam} scoreA={m.team1Score} scoreB={m.team2Score} winner={winnerSide} />
-                    )}
-                    <div data-match-id={m.id}>
-                      <MatchCard
-                        match={m}
-                        readonly={isReadOnly}
-                        isFinal={isLast}
-                        isChampionPath={champPathIds.has(m.id)}
-                        onSlotClick={onSlotClick}
-                        onDeleteTeam={onDeleteTeam}
-                      />
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )
-      })}
-    </div>
+    <BracketSection
+      rounds={tournament.rounds}
+      champPathIds={champPathIds}
+      showChampionAtLast={true}
+      connectors={true}
+      isReadOnly={isReadOnly}
+      onSlotClick={onSlotClick}
+      onDeleteTeam={onDeleteTeam}
+      lastRoundIndex={lastRoundIndex}
+    />
   )
 }

@@ -1,7 +1,12 @@
 import { useState } from 'react'
 import { Check, Plus, Trash2, AlertCircle } from 'lucide-react'
 import Modal from './Modal'
-import { GAME_SUGGESTIONS, CATEGORIES, BRACKET_SIZE_OPTIONS } from '../constants/games'
+import {
+  GAME_SUGGESTIONS,
+  CATEGORIES,
+  TOURNAMENT_TYPES,
+  BRACKET_SIZE_OPTIONS_BY_TYPE,
+} from '../constants/games'
 
 /**
  * Shared create/edit tournament form. Game is free text (datalist hints only),
@@ -13,8 +18,11 @@ export default function TournamentFormModal({ mode, initial, isOpen, onClose, on
   const [name, setName] = useState(initial?.name || '')
   const [game, setGame] = useState(initial?.game || '')
   const [category, setCategory] = useState(initial?.category || 'mixed')
+  const [tournamentType, setTournamentType] = useState(initial?.tournamentType || 'single')
   const [size, setSize] = useState(initial?.teamSize || 16)
   const [err, setErr] = useState({})
+
+  const sizeOptions = BRACKET_SIZE_OPTIONS_BY_TYPE[tournamentType]
 
   if (!isOpen) return null
 
@@ -24,7 +32,7 @@ export default function TournamentFormModal({ mode, initial, isOpen, onClose, on
     if (game.trim().length < 2) next.game = 'Enter the game being played'
     setErr(next)
     if (Object.keys(next).length) return
-    onSubmit?.({ name: name.trim(), game: game.trim(), category, teamSize: size })
+    onSubmit?.({ name: name.trim(), game: game.trim(), category, teamSize: size, tournamentType })
   }
 
   return (
@@ -117,9 +125,40 @@ export default function TournamentFormModal({ mode, initial, isOpen, onClose, on
       </div>
 
       <div className="field">
+        <label className="field__label">Tournament Type</label>
+        <div className="seg" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
+          {TOURNAMENT_TYPES.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              className={`seg__btn ${tournamentType === t.id ? 'is-active' : ''}`}
+              disabled={isEdit}
+              onClick={() => {
+                if (isEdit) return
+                setTournamentType(t.id)
+                // Snap size if the current selection isn't valid for the new
+                // type. Today this only triggers Single→Double with size=64.
+                const valid = BRACKET_SIZE_OPTIONS_BY_TYPE[t.id]
+                if (!valid.some((o) => o.value === size)) {
+                  setSize(valid[valid.length - 1].value)
+                }
+              }}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <div className="field__hint">
+          {isEdit
+            ? 'Tournament type is fixed once created.'
+            : 'Double adds a Losers bracket + Grand Final (+ Reset).'}
+        </div>
+      </div>
+
+      <div className="field">
         <label className="field__label">Bracket Size</label>
-        <div className="seg">
-          {BRACKET_SIZE_OPTIONS.map((o) => (
+        <div className="seg" style={{ gridTemplateColumns: `repeat(${sizeOptions.length}, 1fr)` }}>
+          {sizeOptions.map((o) => (
             <button
               key={o.value}
               type="button"
@@ -132,7 +171,9 @@ export default function TournamentFormModal({ mode, initial, isOpen, onClose, on
           ))}
         </div>
         <div className="field__hint">
-          Single elimination · {Math.log2(size)} rounds · {size - 1} matches total
+          {tournamentType === 'double'
+            ? `Double elimination · ${Math.log2(size)} W rounds + ${2 * Math.log2(size) - 2} L rounds · ${2 * size - 1} matches total`
+            : `Single elimination · ${Math.log2(size)} rounds · ${size - 1} matches total`}
           {isEdit && (
             <span style={{ display: 'block', marginTop: 4 }}>Bracket size is fixed once a tournament is created.</span>
           )}
