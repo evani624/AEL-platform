@@ -107,8 +107,24 @@ export default function BracketSection({
 
   const lastIdx = lastRoundIndex >= 0 ? lastRoundIndex : rounds.length - 1
 
+  // Single-elim 4-team has only 2 rounds, so the final match sits near
+  // the top of the bracket area and .champion's `bottom: calc(100% + 44px)`
+  // overflows upward into the BracketHeader. Add padding-top to the
+  // bracket only when a 2-round section will render a champion AND the
+  // final is actually decided — so the headroom doesn't appear in the
+  // pre-final state. Gated on showChampionAtLast (single-elim only —
+  // double-elim sections pass false), so 8/16/32/64 single + all double
+  // + leaderboard renderings are unaffected.
+  const finalMatch = rounds[rounds.length - 1]?.matches?.[0]
+  const finalDecided = !!finalMatch?.winnerId
+  const needsChampionHeadroom = rounds.length === 2 && showChampionAtLast && finalDecided
+
   return (
-    <div ref={wrapRef} className="bracket" style={{ position: 'relative' }}>
+    <div
+      ref={wrapRef}
+      className={`bracket${needsChampionHeadroom ? ' bracket--small-champion' : ''}`}
+      style={{ position: 'relative' }}
+    >
       {connectors && (
         <svg
           className="bracket-svg"

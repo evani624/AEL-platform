@@ -2501,3 +2501,14 @@ html.is-dragging-global .screen-ambient .particle {
   100% { opacity: 1; transform: translateY(0) scale(1); }
 }
 
+/* Single-elim 4-team: only 2 rounds, so the final match sits near the top
+ * of the bracket and .champion (bottom: calc(100% + 44px)) overflows into
+ * the BracketHeader. Add top padding to push the final match down enough
+ * that the champion clears the header. Gated by BracketSection on
+ * (rounds.length===2 && showChampionAtLast && finalDecided) — so this rule
+ * applies ONLY to the 4-team single-elim case with a played-out final.
+ * 8/16/32/64 single + all double + leaderboard are unaffected. */
+.bracket--small-champion {
+  padding-top: 140px;
+}
+
