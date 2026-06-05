@@ -4,6 +4,7 @@ import Navbar from './Navbar'
 import Sidebar from './Sidebar'
 import Bracket from './Bracket'
 import DoubleEliminationBracket from './DoubleEliminationBracket'
+import LeaderboardScreen from './LeaderboardScreen'
 import BracketAmbient from './BracketAmbient'
 import BracketSkeleton from './BracketSkeleton'
 import Logo from './Logo'
@@ -24,10 +25,16 @@ function BracketHeader({ tournament }) {
           <span className="dot" />
           <span className={`cat-chip cat-chip--${tournament.category}`}>{categoryLabel(tournament.category)}</span>
           <span className="dot" />
-          <span>{tournament.teamSize}-team {tournament.tournamentType === 'double' ? 'double' : 'single'} elim</span>
+          <span>
+            {tournament.tournamentType === 'leaderboard'
+              ? `${tournament.entries?.length ?? 0} teams · leaderboard`
+              : `${tournament.teamSize}-team ${tournament.tournamentType === 'double' ? 'double' : 'single'} elim`}
+          </span>
           <span className="dot" />
           <span>
-            {counts.completed}/{total} matches recorded
+            {tournament.tournamentType === 'leaderboard'
+              ? `${counts.completed}/${total} teams scored`
+              : `${counts.completed}/${total} matches recorded`}
           </span>
         </div>
       </div>
@@ -97,6 +104,10 @@ export default function BracketScreen({
   onSlotClick,
   onDeleteTeam,
   onLogout,
+  onAddEntry,
+  onUpdateEntry,
+  onDeleteEntry,
+  onSetFinal,
   children,
 }) {
   const [collapsed, setCollapsed] = useState(false)
@@ -155,7 +166,16 @@ export default function BracketScreen({
           ) : current ? (
             <>
               <BracketHeader tournament={current} />
-              {current.tournamentType === 'double' ? (
+              {current.tournamentType === 'leaderboard' ? (
+                <LeaderboardScreen
+                  tournament={current}
+                  isReadOnly={mode === 'public'}
+                  onAddEntry={onAddEntry}
+                  onUpdateEntry={onUpdateEntry}
+                  onDeleteEntry={onDeleteEntry}
+                  onSetFinal={onSetFinal}
+                />
+              ) : current.tournamentType === 'double' ? (
                 <DoubleEliminationBracket
                   tournament={current}
                   isReadOnly={mode === 'public'}

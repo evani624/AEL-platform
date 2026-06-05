@@ -20,6 +20,7 @@ export const DEFAULT_CATEGORY = 'mixed'
 export const TOURNAMENT_TYPES = [
   { id: 'single', label: 'Single Elimination' },
   { id: 'double', label: 'Double Elimination' },
+  { id: 'leaderboard', label: 'Leaderboard' },
 ]
 
 // Bracket-size choices per type. Single supports 4..64; Double caps at 32
@@ -41,4 +42,10 @@ export const BRACKET_SIZE_OPTIONS_BY_TYPE = {
     { value: 16, label: '16 Teams' },
     { value: 32, label: '32 Teams' },
   ],
+  // NOTE: no `leaderboard` entry — leaderboard tournaments have free team
+  // counts (admin adds teams via LeaderboardScreen) so the Bracket Size
+  // seg is hidden in TournamentFormModal when type='leaderboard'. The
+  // service stores size=4 as a placeholder; the field is never UI-displayed
+  // for this type. Snap logic in TournamentFormModal guards against the
+  // resulting `undefined` lookup.
 }

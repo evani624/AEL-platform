@@ -33,16 +33,23 @@ function singleElimRoundNames(teamSize) {
  *   - 'single' → returns the legacy { ..., rounds[] } shape (byte-identical
  *     to prior behavior for existing tournaments).
  *   - 'double' → returns { ..., winnerRounds, loserRounds, grandFinal,
- *     grandFinalReset } — the bucketed shape consumed by the Phase-3c
+ *     grandFinalReset } — the bucketed shape consumed by the
  *     DoubleEliminationBracket renderer.
+ *   - 'leaderboard' → returns { ..., isFinal, entries } — entries from the
+ *     leaderboard_entries table. UI sorts by computeRanks() on display.
  *
- * Both shapes carry the additive `tournamentType` field at the top level and
- * `_bracketSide` on every match object so downstream code can route by type.
+ * All shapes carry the additive `tournamentType` field at the top level.
+ * Match-shapes also carry `_bracketSide` on every match object for routing.
  */
-function buildTournamentFromDb(tournamentRow, matchesRows) {
-  const { id, name, game_name, size, category, display_order, tournament_type } = tournamentRow
+function buildTournamentFromDb(tournamentRow, matchesRows, leaderboardRows = []) {
+  const { id, name, game_name, size, category, display_order, tournament_type, is_final } = tournamentRow
   const teamSize = size
-  const tournamentType = tournament_type === 'double' ? 'double' : 'single'
+  const tournamentType =
+    tournament_type === 'double'
+      ? 'double'
+      : tournament_type === 'leaderboard'
+        ? 'leaderboard'
+        : 'single'
 
   // Per-row → app match-object converter. Shared by both shapes so the
   // per-match fields are byte-identical regardless of bracket section.
@@ -93,6 +100,24 @@ function buildTournamentFromDb(tournamentRow, matchesRows) {
     teamSize,
     displayOrder: display_order ?? 0,
     tournamentType,
+  }
+
+  // ----- Leaderboard shape -----
+  if (tournamentType === 'leaderboard') {
+    const myEntries = (leaderboardRows ?? [])
+      .filter((e) => e.tournament_id === id)
+      .map((row) => ({
+        id: row.id,
+        name: row.team_name,
+        color: row.team_color || '#00F5FF',
+        points: row.points ?? 0,
+        createdAt: row.created_at,
+      }))
+    return {
+      ...common,
+      isFinal: !!is_final,
+      entries: myEntries,
+    }
   }
 
   // ----- Double-elim shape -----
@@ -173,7 +198,8 @@ function buildTournamentFromDb(tournamentRow, matchesRows) {
 }
 
 /**
- * Fetch a single tournament by ID with its matches
+ * Fetch a single tournament by ID with its matches (and leaderboard
+ * entries if the type is 'leaderboard').
  */
 export async function fetchTournamentById(id) {
   const { data: tournament, error: tError } = await supabase
@@ -185,7 +211,11 @@ export async function fetchTournamentById(id) {
   if (tError || !tournament) return null
 
   const matches = await fetchMatchesForTournament(id)
-  return buildTournamentFromDb(tournament, matches)
+  const leaderboardEntries =
+    tournament.tournament_type === 'leaderboard'
+      ? await fetchLeaderboardEntries(id)
+      : []
+  return buildTournamentFromDb(tournament, matches, leaderboardEntries)
 }
 
 /**
@@ -217,8 +247,24 @@ export async function fetchTournaments() {
 
   if (mError) throw mError
 
+  // Only query leaderboard_entries if at least one loaded tournament is of
+  // type 'leaderboard' — saves an empty round-trip for the common case.
+  const leaderboardTournamentIds = tournaments
+    .filter((t) => t.tournament_type === 'leaderboard')
+    .map((t) => t.id)
+  let leaderboardEntries = []
+  if (leaderboardTournamentIds.length > 0) {
+    const { data: leRows, error: leError } = await supabase
+      .from('leaderboard_entries')
+      .select('*')
+      .in('tournament_id', leaderboardTournamentIds)
+      .order('created_at', { ascending: true })
+    if (leError) throw leError
+    leaderboardEntries = leRows || []
+  }
+
   return tournaments.map((t) =>
-    buildTournamentFromDb(t, matches || [])
+    buildTournamentFromDb(t, matches || [], leaderboardEntries)
   )
 }
 
@@ -234,6 +280,12 @@ export async function fetchTournaments() {
  * legacy single-elim path keeps working through the deploy gap.
  */
 export async function createTournament({ name, game, category, teamSize, tournamentType = 'single' }) {
+  // Leaderboard stores size=4 as a placeholder — the field is never
+  // UI-displayed for this type (BracketHeader subtitle reads entries.length).
+  // Zero schema change to the size CHECK (still permits 4); the meaningful
+  // count comes from leaderboard_entries.
+  const sizeToStore = tournamentType === 'leaderboard' ? 4 : teamSize
+
   // Insert the tournament row (with tournament_type if the column exists).
   let { data: tournament, error: tError } = await supabase
     .from('tournaments')
@@ -241,7 +293,7 @@ export async function createTournament({ name, game, category, teamSize, tournam
       name,
       game_name: game || '',
       category: category || 'mixed',
-      size: teamSize,
+      size: sizeToStore,
       tournament_type: tournamentType,
     })
     .select()
@@ -250,19 +302,25 @@ export async function createTournament({ name, game, category, teamSize, tournam
   if (tError && isMissingColumn(tError)) {
     // tournament_type column not migrated yet — retry without it (DB will
     // default to 'single', which is fine because pre-migration there's no
-    // double-elim UI anyway).
+    // double-elim or leaderboard UI anyway).
     ;({ data: tournament, error: tError } = await supabase
       .from('tournaments')
       .insert({
         name,
         game_name: game || '',
         category: category || 'mixed',
-        size: teamSize,
+        size: sizeToStore,
       })
       .select()
       .single())
   }
   if (tError) throw tError
+
+  // Leaderboard: no matches, no seeded entries. Admin adds teams later
+  // via the LeaderboardScreen.
+  if (tournamentType === 'leaderboard') {
+    return buildTournamentFromDb(tournament, [], [])
+  }
 
   // Build the match rows for either single or double-elim.
   const matchRows = []
@@ -607,4 +665,110 @@ export async function advanceWinnerAndLoser(tournament, completedMatch, winningT
   }
 
   return { winnerTarget, loserTarget, championDecided: false }
+}
+
+// ============================================================
+// Leaderboard CRUD — separate from matches; reads/writes leaderboard_entries.
+//
+// Unique violation handling: the (tournament_id, team_name) UNIQUE
+// constraint can fire on INSERT (addLeaderboardEntry) AND UPDATE
+// (updateLeaderboardEntry when team_name changes). Postgres reports
+// error.code === '23505' for unique_violation. We rethrow as a typed
+// Error (code='DUPLICATE_TEAM_NAME') that AdminView catches and maps to
+// a friendly toast — never an unhandled error to the screen banner.
+// ============================================================
+
+function isUniqueViolation(error) {
+  return error?.code === '23505'
+}
+
+function duplicateTeamNameError(name) {
+  const err = new Error(`A team named "${name}" is already in this leaderboard.`)
+  err.code = 'DUPLICATE_TEAM_NAME'
+  return err
+}
+
+/**
+ * Fetch all leaderboard entries for a tournament, ordered by created_at
+ * (the UI re-sorts by points DESC + name ASC via computeRanks for display).
+ */
+export async function fetchLeaderboardEntries(tournamentId) {
+  const { data, error } = await supabase
+    .from('leaderboard_entries')
+    .select('*')
+    .eq('tournament_id', tournamentId)
+    .order('created_at', { ascending: true })
+
+  if (error) throw error
+  return data || []
+}
+
+/**
+ * Add a leaderboard entry. Trims the name before insert. Maps Postgres
+ * 23505 (unique_violation) to a DUPLICATE_TEAM_NAME error for the caller.
+ */
+export async function addLeaderboardEntry(tournamentId, { name, color, points = 0 }) {
+  const trimmed = (name ?? '').trim()
+  const { error } = await supabase.from('leaderboard_entries').insert({
+    tournament_id: tournamentId,
+    team_name: trimmed,
+    team_color: color || null,
+    points,
+  })
+  if (isUniqueViolation(error)) throw duplicateTeamNameError(trimmed)
+  if (error) throw error
+}
+
+/**
+ * Update a leaderboard entry. Any subset of { name, color, points } may be
+ * provided. Renames trigger the same 23505 → DUPLICATE_TEAM_NAME mapping.
+ *
+ * NOTE (Phase 3b): only `points` updates fire from the LeaderboardScreen UI
+ * today — the inline editor in the row doesn't expose name/color edits.
+ * The rename branch of the 23505 → DUPLICATE_TEAM_NAME mapping is therefore
+ * unexercised in 3b; it will fire when a rename UI is added in v1.2.
+ * Keeping the mapping in place means no new wiring is needed then.
+ */
+export async function updateLeaderboardEntry(entryId, { name, color, points }) {
+  const updates = {}
+  if (name !== undefined) updates.team_name = (name ?? '').trim()
+  if (color !== undefined) updates.team_color = color || null
+  if (points !== undefined) updates.points = points
+  if (Object.keys(updates).length === 0) return
+
+  const { error } = await supabase
+    .from('leaderboard_entries')
+    .update(updates)
+    .eq('id', entryId)
+
+  if (isUniqueViolation(error)) {
+    throw duplicateTeamNameError(updates.team_name ?? '')
+  }
+  if (error) throw error
+}
+
+/**
+ * Delete a single leaderboard entry. No cascading effects.
+ */
+export async function deleteLeaderboardEntry(entryId) {
+  const { error } = await supabase
+    .from('leaderboard_entries')
+    .delete()
+    .eq('id', entryId)
+  if (error) throw error
+}
+
+/**
+ * Flip the tournament's is_final flag. Used by leaderboard's
+ * "Mark Tournament Final" / "Un-mark Final" buttons. The caller is
+ * responsible for the no-top-tie gate (forward block at the UI layer);
+ * this function just writes the flag. Auto-revert on top-tie creation is
+ * also a client-side concern — it calls this with isFinal=false.
+ */
+export async function setTournamentFinal(tournamentId, isFinal) {
+  const { error } = await supabase
+    .from('tournaments')
+    .update({ is_final: !!isFinal })
+    .eq('id', tournamentId)
+  if (error) throw error
 }

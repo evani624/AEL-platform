@@ -77,7 +77,11 @@ function TournamentRow({ t, mode, currentId, onSelect, onDelete, onShare, dndDis
           <span>·</span>
           <span className={`cat-chip cat-chip--${t.category} cat-chip--mini`}>{categoryLabel(t.category)}</span>
           <span>·</span>
-          <span>{t.teamSize} teams</span>
+          <span>
+            {t.tournamentType === 'leaderboard'
+              ? `${t.entries?.length ?? 0} teams`
+              : `${t.teamSize} teams`}
+          </span>
           <span>·</span>
           <span>
             {counts.completed}/{total}

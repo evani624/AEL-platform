@@ -1,5 +1,6 @@
 import { CATEGORIES } from '../constants/games'
 import { getDoubleElimChampionInfo } from './doubleElim'
+import { getLeaderboardChampionInfo } from './leaderboard'
 
 /**
  * Generate bracket structure for a given team size (8, 16, 32, or 64).
@@ -103,12 +104,26 @@ export function findMatch(tournament, matchId) {
 /**
  * Count completed (has winner) and upcoming (no winner) matches.
  *
+ * Leaderboard: "matches" reinterpreted as entries — `completed` is teams
+ * with points > 0, `upcoming` is teams with points === 0. The BracketHeader
+ * subtitle renders this as "X scored / Y teams" for leaderboard type.
+ *
  * Double-elim: iterates W + L + GF; Reset is counted only when it's "live"
  * (gf is final and L-champ won) — otherwise the Reset row is a placeholder
  * that shouldn't inflate the denominator. Same stale-Reset rule as
  * getDoubleElimChampionInfo and GrandFinalPanel.
  */
 export function getMatchCounts(tournament) {
+  if (tournament?.tournamentType === 'leaderboard') {
+    const entries = tournament.entries ?? []
+    let completed = 0
+    let upcoming = 0
+    for (const en of entries) {
+      if ((en?.points ?? 0) > 0) completed++
+      else upcoming++
+    }
+    return { completed, upcoming }
+  }
   if (tournament?.tournamentType === 'double') {
     let completed = 0
     let upcoming = 0
@@ -175,6 +190,12 @@ export function getMatchState(match) {
 
 /** Tournament-level status pill: 'soon' | 'live' | 'done' (follows match states). */
 export function getTournamentStatus(tournament) {
+  if (tournament?.tournamentType === 'leaderboard') {
+    if (tournament.isFinal) return 'done'
+    const entries = tournament.entries ?? []
+    if (entries.some((en) => (en?.points ?? 0) > 0)) return 'live'
+    return 'soon'
+  }
   if (tournament?.tournamentType === 'double') {
     let total = 0
     let done = 0
@@ -241,6 +262,9 @@ export function getWinnerSide(match) {
  * Reset row from a prior, reverted L-win).
  */
 export function getChampionInfo(tournament) {
+  if (tournament?.tournamentType === 'leaderboard') {
+    return getLeaderboardChampionInfo(tournament)
+  }
   if (tournament?.tournamentType === 'double') {
     return getDoubleElimChampionInfo(tournament)
   }

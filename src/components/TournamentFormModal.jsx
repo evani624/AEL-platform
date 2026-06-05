@@ -126,7 +126,7 @@ export default function TournamentFormModal({ mode, initial, isOpen, onClose, on
 
       <div className="field">
         <label className="field__label">Tournament Type</label>
-        <div className="seg" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
+        <div className="seg" style={{ gridTemplateColumns: 'repeat(3, 1fr)' }}>
           {TOURNAMENT_TYPES.map((t) => (
             <button
               key={t.id}
@@ -137,9 +137,11 @@ export default function TournamentFormModal({ mode, initial, isOpen, onClose, on
                 if (isEdit) return
                 setTournamentType(t.id)
                 // Snap size if the current selection isn't valid for the new
-                // type. Today this only triggers Single→Double with size=64.
+                // type. For leaderboard, BRACKET_SIZE_OPTIONS_BY_TYPE has no
+                // entry (size seg is hidden, service overrides to 4 on
+                // insert) — guard against the undefined lookup.
                 const valid = BRACKET_SIZE_OPTIONS_BY_TYPE[t.id]
-                if (!valid.some((o) => o.value === size)) {
+                if (valid && !valid.some((o) => o.value === size)) {
                   setSize(valid[valid.length - 1].value)
                 }
               }}
@@ -151,34 +153,40 @@ export default function TournamentFormModal({ mode, initial, isOpen, onClose, on
         <div className="field__hint">
           {isEdit
             ? 'Tournament type is fixed once created.'
-            : 'Double adds a Losers bracket + Grand Final (+ Reset).'}
+            : tournamentType === 'leaderboard'
+              ? 'Points table — admin enters points; table auto-sorts.'
+              : tournamentType === 'double'
+                ? 'Adds a Losers bracket + Grand Final (+ Reset).'
+                : "Knockout bracket — one loss and you're out."}
         </div>
       </div>
 
-      <div className="field">
-        <label className="field__label">Bracket Size</label>
-        <div className="seg" style={{ gridTemplateColumns: `repeat(${sizeOptions.length}, 1fr)` }}>
-          {sizeOptions.map((o) => (
-            <button
-              key={o.value}
-              type="button"
-              className={`seg__btn ${size === o.value ? 'is-active' : ''}`}
-              disabled={isEdit}
-              onClick={() => !isEdit && setSize(o.value)}
-            >
-              {o.value}
-            </button>
-          ))}
+      {tournamentType !== 'leaderboard' && (
+        <div className="field">
+          <label className="field__label">Bracket Size</label>
+          <div className="seg" style={{ gridTemplateColumns: `repeat(${sizeOptions.length}, 1fr)` }}>
+            {sizeOptions.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                className={`seg__btn ${size === o.value ? 'is-active' : ''}`}
+                disabled={isEdit}
+                onClick={() => !isEdit && setSize(o.value)}
+              >
+                {o.value}
+              </button>
+            ))}
+          </div>
+          <div className="field__hint">
+            {tournamentType === 'double'
+              ? `Double elimination · ${Math.log2(size)} W rounds + ${2 * Math.log2(size) - 2} L rounds · ${2 * size - 1} matches total`
+              : `Single elimination · ${Math.log2(size)} rounds · ${size - 1} matches total`}
+            {isEdit && (
+              <span style={{ display: 'block', marginTop: 4 }}>Bracket size is fixed once a tournament is created.</span>
+            )}
+          </div>
         </div>
-        <div className="field__hint">
-          {tournamentType === 'double'
-            ? `Double elimination · ${Math.log2(size)} W rounds + ${2 * Math.log2(size) - 2} L rounds · ${2 * size - 1} matches total`
-            : `Single elimination · ${Math.log2(size)} rounds · ${size - 1} matches total`}
-          {isEdit && (
-            <span style={{ display: 'block', marginTop: 4 }}>Bracket size is fixed once a tournament is created.</span>
-          )}
-        </div>
-      </div>
+      )}
     </Modal>
   )
 }

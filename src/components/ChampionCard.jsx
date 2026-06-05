@@ -1,6 +1,6 @@
 import { colorHex } from '../constants/teamColors'
 
-function CrownSVG() {
+export function CrownSVG() {
   return (
     <svg viewBox="0 0 80 60" xmlns="http://www.w3.org/2000/svg" aria-label="Champion crown">
       <defs>

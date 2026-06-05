@@ -9,6 +9,7 @@ import Toasts from '../components/Toasts'
 import AppSkeleton from '../components/AppSkeleton'
 import { supabase } from '../lib/supabaseClient'
 import { findMatch } from '../utils/bracketUtils'
+import { topTieDetected } from '../utils/leaderboard'
 import {
   fetchTournaments,
   fetchTournamentById,
@@ -19,6 +20,10 @@ import {
   updateNextMatchWithWinner,
   updateTournamentsOrder,
   advanceWinnerAndLoser,
+  addLeaderboardEntry,
+  updateLeaderboardEntry,
+  deleteLeaderboardEntry,
+  setTournamentFinal,
 } from '../lib/supabaseService'
 
 export default function AdminView() {
@@ -33,6 +38,7 @@ export default function AdminView() {
   const [matchResultModal, setMatchResultModal] = useState({ open: false, match: null })
   const [tournamentForm, setTournamentForm] = useState({ open: false, mode: 'create', initial: null })
   const [shareModal, setShareModal] = useState({ open: false, tournament: null })
+  const [leaderboardAddModal, setLeaderboardAddModal] = useState({ open: false })
 
   const selectedTournament = tournaments.find((t) => t.id === selectedTournamentId)
 
@@ -95,7 +101,11 @@ export default function AdminView() {
           const newTournament = await createTournamentSupabase({ name, game, category, teamSize, tournamentType })
           setTournaments((prev) => [newTournament, ...prev])
           setSelectedTournamentId(newTournament.id)
-          pushToast({ title: 'Tournament created', sub: `${game} · ${teamSize} teams`, icon: 'sparkles' })
+          pushToast({
+            title: tournamentType === 'leaderboard' ? 'Leaderboard created' : 'Tournament created',
+            sub: tournamentType === 'leaderboard' ? game : `${game} · ${teamSize} teams`,
+            icon: 'sparkles',
+          })
         }
         setTournamentForm({ open: false, mode: 'create', initial: null })
       } catch (err) {
@@ -302,6 +312,177 @@ export default function AdminView() {
     [tournaments, pushToast]
   )
 
+  // ---------------- leaderboard CRUD
+  const handleOpenAddLeaderboard = useCallback(() => {
+    setLeaderboardAddModal({ open: true })
+  }, [])
+
+  const handleAddLeaderboardConfirm = useCallback(
+    async (teamData) => {
+      if (!selectedTournamentId) return
+
+      // Auto-revert simulation for ADD: append a new entry with points=0
+      // and check if that creates a top-tie while isFinal=true. A team at 0
+      // ties with any existing team at 0 — common case is "marked final
+      // with one team at 0 → admin adds a second team → both at 0 → tie".
+      // Residual risk: if addLeaderboardEntry succeeds but the subsequent
+      // setTournamentFinal(false) fails (partial-failure window), the DB
+      // ends up final + top-tied. Accepted; no recovery.
+      const tournament = tournaments.find((t) => t.id === selectedTournamentId)
+      const wasFinal = !!tournament?.isFinal
+      const entries = tournament?.entries ?? []
+      const newEntries = [
+        ...entries,
+        { id: '__pending__', name: teamData.name, color: teamData.color, points: 0 },
+      ]
+      const shouldAutoRevert = wasFinal && topTieDetected(newEntries)
+
+      try {
+        await addLeaderboardEntry(selectedTournamentId, {
+          name: teamData.name,
+          color: teamData.color,
+        })
+        if (shouldAutoRevert) {
+          await setTournamentFinal(selectedTournamentId, false)
+        }
+        const refreshed = await fetchTournamentById(selectedTournamentId)
+        if (refreshed) {
+          setTournaments((prev) =>
+            prev.map((t) => (t.id === selectedTournamentId ? refreshed : t))
+          )
+        }
+        setLeaderboardAddModal({ open: false })
+        pushToast({ title: 'Team added', sub: teamData.name, icon: 'check', flavor: 'cyan' })
+        if (shouldAutoRevert) {
+          pushToast({
+            title: 'Un-marked Final',
+            sub: 'Top rank is now tied — resolve to mark final again.',
+            icon: 'alert',
+          })
+        }
+      } catch (err) {
+        if (err?.code === 'DUPLICATE_TEAM_NAME') {
+          // Leave modal open so admin can correct the name.
+          pushToast({ title: 'Duplicate team name', sub: err.message, icon: 'alert' })
+          return
+        }
+        setError(err.message)
+      }
+    },
+    [selectedTournamentId, tournaments, pushToast]
+  )
+
+  const handleUpdateLeaderboardEntry = useCallback(
+    async (entryId, fields) => {
+      if (!selectedTournamentId) return
+
+      // Auto-revert simulation for UPDATE: apply the patch locally and
+      // check if it creates a top-tie while isFinal=true. The invariant
+      // we preserve: isFinal === true ↔ champion is unique.
+      // Residual risk: if updateLeaderboardEntry succeeds but the
+      // subsequent setTournamentFinal(false) fails (partial-failure
+      // window), the DB ends up final + top-tied. Accepted; no recovery.
+      const tournament = tournaments.find((t) => t.id === selectedTournamentId)
+      const wasFinal = !!tournament?.isFinal
+      const entries = tournament?.entries ?? []
+      const newEntries = entries.map((e) =>
+        e.id === entryId ? { ...e, ...fields } : e
+      )
+      const shouldAutoRevert = wasFinal && topTieDetected(newEntries)
+
+      try {
+        await updateLeaderboardEntry(entryId, fields)
+        if (shouldAutoRevert) {
+          await setTournamentFinal(selectedTournamentId, false)
+        }
+        const refreshed = await fetchTournamentById(selectedTournamentId)
+        if (refreshed) {
+          setTournaments((prev) =>
+            prev.map((t) => (t.id === selectedTournamentId ? refreshed : t))
+          )
+        }
+        if (shouldAutoRevert) {
+          pushToast({
+            title: 'Un-marked Final',
+            sub: 'Top rank is now tied — resolve to mark final again.',
+            icon: 'alert',
+          })
+        }
+      } catch (err) {
+        if (err?.code === 'DUPLICATE_TEAM_NAME') {
+          pushToast({ title: 'Duplicate team name', sub: err.message, icon: 'alert' })
+          return
+        }
+        setError(err.message)
+      }
+    },
+    [selectedTournamentId, tournaments, pushToast]
+  )
+
+  const handleDeleteLeaderboardEntry = useCallback(
+    async (entryId) => {
+      if (!selectedTournamentId) return
+
+      // Auto-revert simulation for DELETE: remove the entry from the
+      // local copy and check if that creates a top-tie. Common case:
+      // deleting the unique top leaves the next two now-tied teams.
+      // Residual risk: if deleteLeaderboardEntry succeeds but the
+      // subsequent setTournamentFinal(false) fails (partial-failure
+      // window), the DB ends up final + top-tied. Accepted; no recovery.
+      const tournament = tournaments.find((t) => t.id === selectedTournamentId)
+      const wasFinal = !!tournament?.isFinal
+      const entries = tournament?.entries ?? []
+      const newEntries = entries.filter((e) => e.id !== entryId)
+      const shouldAutoRevert = wasFinal && topTieDetected(newEntries)
+
+      try {
+        await deleteLeaderboardEntry(entryId)
+        if (shouldAutoRevert) {
+          await setTournamentFinal(selectedTournamentId, false)
+        }
+        const refreshed = await fetchTournamentById(selectedTournamentId)
+        if (refreshed) {
+          setTournaments((prev) =>
+            prev.map((t) => (t.id === selectedTournamentId ? refreshed : t))
+          )
+        }
+        pushToast({ title: 'Team removed', icon: 'trash' })
+        if (shouldAutoRevert) {
+          pushToast({
+            title: 'Un-marked Final',
+            sub: 'Top rank is now tied — resolve to mark final again.',
+            icon: 'alert',
+          })
+        }
+      } catch (err) {
+        setError(err.message)
+      }
+    },
+    [selectedTournamentId, tournaments, pushToast]
+  )
+
+  const handleSetTournamentFinal = useCallback(
+    async (isFinal) => {
+      if (!selectedTournamentId) return
+      try {
+        await setTournamentFinal(selectedTournamentId, isFinal)
+        const refreshed = await fetchTournamentById(selectedTournamentId)
+        if (refreshed) {
+          setTournaments((prev) =>
+            prev.map((t) => (t.id === selectedTournamentId ? refreshed : t))
+          )
+        }
+        pushToast({
+          title: isFinal ? 'Tournament marked Final' : 'Tournament un-marked',
+          icon: isFinal ? 'crown' : 'check',
+        })
+      } catch (err) {
+        setError(err.message)
+      }
+    },
+    [selectedTournamentId, pushToast]
+  )
+
   const handleMatchResultConfirm = useCallback(
     async ({ status, winnerId, team1Score, team2Score, matchDate, matchTime }) => {
       const { match } = matchResultModal
@@ -458,6 +639,10 @@ export default function AdminView() {
         onSlotClick={handleSlotClick}
         onDeleteTeam={handleDeleteTeam}
         onLogout={handleLogout}
+        onAddEntry={handleOpenAddLeaderboard}
+        onUpdateEntry={handleUpdateLeaderboardEntry}
+        onDeleteEntry={handleDeleteLeaderboardEntry}
+        onSetFinal={handleSetTournamentFinal}
       >
         {addTeamModal.open && (
           <AddTeamModal
@@ -465,6 +650,15 @@ export default function AdminView() {
             slotLabel={addTeamLabel}
             onClose={() => setAddTeamModal({ open: false, match: null, slot: null })}
             onConfirm={handleAddTeamConfirm}
+          />
+        )}
+
+        {leaderboardAddModal.open && (
+          <AddTeamModal
+            isOpen
+            slotLabel="New team"
+            onClose={() => setLeaderboardAddModal({ open: false })}
+            onConfirm={handleAddLeaderboardConfirm}
           />
         )}
 

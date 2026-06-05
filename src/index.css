@@ -2328,3 +2328,176 @@ html.is-dragging-global .screen-ambient .particle {
   min-width: 0;
   width: auto;
 }
+
+/* ============================================================
+ * Leaderboard standings table.
+ * ============================================================ */
+
+.leaderboard {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px 0;
+  width: 100%;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.leaderboard__table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+.leaderboard__th {
+  text-align: left;
+  font-family: monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom: 1px solid var(--line);
+}
+.leaderboard__th--rank { width: 64px; }
+.leaderboard__th--points { width: 110px; text-align: right; }
+.leaderboard__th--actions { width: 48px; }
+
+.leaderboard__rank,
+.leaderboard__team,
+.leaderboard__points,
+.leaderboard__actions-cell {
+  padding: 12px 14px;
+  vertical-align: middle;
+}
+.leaderboard__rank {
+  font-family: monospace;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Row dividers — `border-top` on <tr> is ignored under `border-collapse:
+ * separate`, so the divider lives on the <td> cells instead. */
+.leaderboard__row > td {
+  border-top: 1px solid var(--line);
+}
+.leaderboard__row:first-child > td { border-top: 0; }
+
+/* Inner wrapper for chip + name — flex on the <td>.leaderboard__team
+ * itself would destroy table-cell layout. */
+.leaderboard__team-inner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  /* Allow the name span to shrink + ellipsize within the flex container.
+   * Without min-width: 0 the flex item refuses to shrink below its
+   * intrinsic content width (the full text), so a 40-char name overflows
+   * the ~115px team cell at a 375px viewport. */
+  min-width: 0;
+}
+.leaderboard__name {
+  font-size: 13px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  max-width: 280px;
+}
+
+.leaderboard__points { text-align: right; }
+.leaderboard__points-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text);
+  font-size: 14px;
+  font-family: monospace;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+.leaderboard__points-btn:hover {
+  border-color: var(--line-strong);
+  background: rgba(139, 92, 246, 0.08);
+}
+.leaderboard__points-input {
+  width: 80px;
+  font-size: 14px;
+  font-family: monospace;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: var(--r-sm);
+  border: 1px solid rgba(139, 92, 246, 0.55);
+  background: rgba(8, 8, 16, 0.6);
+  color: var(--text);
+  text-align: right;
+  /* Hide native number-input spinners — they clash with the theme. */
+  -moz-appearance: textfield;
+}
+.leaderboard__points-input::-webkit-inner-spin-button,
+.leaderboard__points-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+.leaderboard__points-input:focus {
+  outline: none;
+  border-color: rgba(139, 92, 246, 0.85);
+  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.15);
+}
+
+.leaderboard__empty {
+  padding: 40px 14px;
+  text-align: center;
+  color: var(--text-mute);
+  font-size: 13px;
+}
+
+.leaderboard__actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.leaderboard__actions-cell { text-align: right; }
+
+.leaderboard__warning {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  font-size: 12.5px;
+  color: #F9A8D4;
+  background: rgba(244, 114, 182, 0.10);
+  border: 1px solid rgba(244, 114, 182, 0.3);
+  border-radius: var(--r-md);
+}
+
+/* Override the bracket's absolute-positioned champion when used inside a
+ * leaderboard. In the bracket, .champion floats above its match-card via
+ * `bottom: calc(100% + 44px)` relative to a per-match positioned wrapper.
+ * The leaderboard has no such wrapper — without this override the card
+ * anchors to .bracket-wrap and renders 44px above the top of the bracket
+ * area (off-screen). Switch to in-flow + centered via align-self.
+ */
+.leaderboard .champion {
+  position: relative;
+  bottom: auto;
+  left: auto;
+  transform: none;
+  align-self: center;
+  margin: 0 0 12px;
+  animation-name: leaderboard-champion-rise;
+}
+@keyframes leaderboard-champion-rise {
+  0%   { opacity: 0; transform: translateY(36px) scale(0.85); }
+  60%  { opacity: 1; transform: translateY(-6px) scale(1.04); }
+  100% { opacity: 1; transform: translateY(0) scale(1); }
+}
+
